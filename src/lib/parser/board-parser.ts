@@ -20,7 +20,7 @@ const WITH_CASE_REGEX = /WITH\s+((?:WP|PIL|CP|IA|CAW|LPA|RPW|CRR|FA|CAF|CAL|XOB|
 
 const IN_CASE_REGEX = /IN\s+((?:WP|PIL|CP|IA|CAW|LPA|RPW|CRR|FA|CAF|CAL|XOB|CAI|SMPIL)(?:\(ST\))?\/[\d]+\/[\d]{4})/;
 
-const DATE_REGEX = /(?:DAILY\s+(?:MAIN|SUPPLEMENTARY)|WEEKLY\s+MAIN)\s+(\d{2}\/\d{2}\/\d{4})/;
+const DATE_REGEX = /(?:DAILY\s+(?:MAIN|SUPPLEMENTARY)|WEEKLY\s+MAIN(?:\s*-\s*\d+)?)\s+(\d{2}\/\d{2}\/\d{4})/;
 
 const BOARD_TYPE_REGEX = /(DAILY\s+(?:MAIN|SUPPLEMENTARY)|WEEKLY\s+MAIN(?:\s*-\s*\d+)?)/;
 
