@@ -16,10 +16,12 @@ import {
   BarChart3,
   Users,
   LogOut,
+  ClipboardList,
 } from "lucide-react";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/board", label: "Daily Board", icon: ClipboardList },
   { href: "/cases", label: "Cases", icon: Briefcase },
   { href: "/entries", label: "Entries", icon: FileText },
   { href: "/documents", label: "Documents", icon: Upload },

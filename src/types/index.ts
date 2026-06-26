@@ -48,3 +48,25 @@ export interface Document {
   uploadedBy: string;
   uploadedAt: Timestamp;
 }
+
+export interface BoardEntry {
+  id: string;
+  boardDate: string;
+  boardType: string;
+  srNo: number;
+  caseType: string;
+  caseNo: string;
+  caseYear: string;
+  fullCaseNumber: string;
+  partyName: string;
+  remarks: string;
+  resultStatus: string;
+  fees: number;
+  gpAdvocate: string;
+  courtName: string;
+  benchId: string;
+  linkedCases: string[];
+  sourceFile: string;
+  uploadedBy: string;
+  uploadedAt: Timestamp;
+}
