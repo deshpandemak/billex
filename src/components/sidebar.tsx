@@ -17,6 +17,7 @@ import {
   Percent,
   Users,
   LogOut,
+  ClipboardList,
 } from "lucide-react";
 
 const baseItems = [{ href: "/dashboard", label: "Dashboard", icon: LayoutDashboard }];

@@ -48,6 +48,7 @@ export default function LoginPage() {
     } catch {
       setError("Could not send reset email. Check the address and try again.");
     }
+    setLoading(false);
   }
 
   return (
