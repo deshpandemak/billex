@@ -6,30 +6,30 @@ import { signOut } from "firebase/auth";
 import { useRouter } from "next/navigation";
 import { auth } from "@/lib/firebase/client";
 import { useAuth } from "@/lib/auth/context";
-import { isAdmin } from "@/lib/auth/roles";
+import { isAdmin, isBillViewer, isDataOperator } from "@/lib/auth/roles";
+import { ROLE_LABELS } from "@/types";
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
-  Briefcase,
-  FileText,
-  Upload,
-  BarChart3,
+  ClipboardList,
+  Receipt,
+  Scale,
+  Percent,
   Users,
   LogOut,
   ClipboardList,
 } from "lucide-react";
 
-const navItems = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/board", label: "Daily Board", icon: ClipboardList },
-  { href: "/cases", label: "Cases", icon: Briefcase },
-  { href: "/entries", label: "Entries", icon: FileText },
-  { href: "/documents", label: "Documents", icon: Upload },
-  { href: "/reports", label: "Reports", icon: BarChart3 },
-];
+const baseItems = [{ href: "/dashboard", label: "Dashboard", icon: LayoutDashboard }];
+
+const dataOperatorItems = [{ href: "/board", label: "Board Data", icon: ClipboardList }];
+
+const billViewerItems = [{ href: "/billing", label: "Billing", icon: Receipt }];
 
 const adminItems = [
-  { href: "/admin", label: "Admin Panel", icon: Users },
+  { href: "/admin/pleaders", label: "Pleaders", icon: Scale },
+  { href: "/admin/fees", label: "Fee Config", icon: Percent },
+  { href: "/admin/users", label: "Logins & Roles", icon: Users },
 ];
 
 export function Sidebar() {
@@ -42,7 +42,13 @@ export function Sidebar() {
     router.push("/login");
   }
 
-  const items = isAdmin(role) ? [...navItems, ...adminItems] : navItems;
+  const admin = isAdmin(role);
+  const items = [
+    ...baseItems,
+    ...(isDataOperator(role) ? dataOperatorItems : []),
+    ...(isBillViewer(role) || admin ? billViewerItems : []),
+    ...(admin ? adminItems : []),
+  ];
 
   return (
     <aside className="flex h-full w-64 flex-col border-r bg-white">
@@ -76,7 +82,8 @@ export function Sidebar() {
       </nav>
 
       <div className="border-t p-4">
-        <div className="mb-3 text-sm text-gray-500 truncate">{user?.email}</div>
+        <div className="mb-1 text-sm font-medium text-gray-700 truncate">{user?.email}</div>
+        {role && <div className="mb-3 text-xs text-gray-400">{ROLE_LABELS[role]}</div>}
         <button
           onClick={handleSignOut}
           className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-gray-600 hover:bg-gray-100"

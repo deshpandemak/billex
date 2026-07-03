@@ -9,8 +9,8 @@ const geistSans = Geist({
 });
 
 export const metadata: Metadata = {
-  title: "BillEx — Legal Billing & Case Management",
-  description: "Legal billing and case management system — GP Edition",
+  title: "BillEx — Government Pleader Billing",
+  description: "Government Pleader billing and board-data management system",
 };
 
 export default function RootLayout({

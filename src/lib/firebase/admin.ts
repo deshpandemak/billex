@@ -1,19 +1,35 @@
-import { initializeApp, getApps, cert } from "firebase-admin/app";
-import { getAuth } from "firebase-admin/auth";
-import { getFirestore } from "firebase-admin/firestore";
+import { initializeApp, getApps, cert, type App } from "firebase-admin/app";
+import { getAuth, type Auth } from "firebase-admin/auth";
+import { getFirestore, type Firestore } from "firebase-admin/firestore";
 
-const apps = getApps();
+let app: App | undefined;
 
-const app =
-  apps.length === 0
-    ? initializeApp({
-        credential: cert({
-          projectId: process.env.FIREBASE_ADMIN_PROJECT_ID,
-          clientEmail: process.env.FIREBASE_ADMIN_CLIENT_EMAIL,
-          privateKey: process.env.FIREBASE_ADMIN_PRIVATE_KEY?.replace(/\\n/g, "\n"),
-        }),
-      })
-    : apps[0];
+function getAdminApp(): App {
+  if (app) return app;
+  const apps = getApps();
+  if (apps.length > 0) {
+    app = apps[0];
+    return app;
+  }
+  app = initializeApp({
+    credential: cert({
+      projectId: process.env.FIREBASE_ADMIN_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_ADMIN_CLIENT_EMAIL,
+      privateKey: process.env.FIREBASE_ADMIN_PRIVATE_KEY?.replace(/\\n/g, "\n"),
+    }),
+  });
+  return app;
+}
 
-export const adminAuth = getAuth(app);
-export const adminDb = getFirestore(app);
+function lazyProxy<T extends object>(getReal: () => T): T {
+  return new Proxy({} as T, {
+    get(_target, prop) {
+      const real = getReal();
+      const value = Reflect.get(real as object, prop);
+      return typeof value === "function" ? value.bind(real) : value;
+    },
+  });
+}
+
+export const adminAuth: Auth = lazyProxy(() => getAuth(getAdminApp()));
+export const adminDb: Firestore = lazyProxy(() => getFirestore(getAdminApp()));

@@ -1,370 +1,365 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
-  collection, addDoc, getDocs, query, where, orderBy, deleteDoc, doc, updateDoc, Timestamp,
+  addDoc, collection, deleteDoc, doc, getDocs, orderBy, query, Timestamp, updateDoc, where,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase/client";
+import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/context";
-import { Button } from "@/components/ui/button";
+import { isDataOperator } from "@/lib/auth/roles";
+import { computeFees } from "@/lib/billing/fees";
+import { extractLinesFromPdf, parseBoardRowsFromLines } from "@/lib/board/pdfParse";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Upload, FileText, Trash2, Search } from "lucide-react";
-import type { BoardEntry } from "@/types";
-import type { ParsedBoardEntry } from "@/lib/parser/board-parser";
+import { Plus, Trash2, Upload } from "lucide-react";
+import type { BoardEntry, Designation, FeeConfig, Pleader, ResultStatus } from "@/types";
+import { DESIGNATION_LABELS, RESULT_STATUSES, RESULT_STATUS_LABELS } from "@/types";
+
+interface DraftRow {
+  id: string;
+  persisted: boolean;
+  date: string;
+  caseType: string;
+  caseNo: string;
+  year: string;
+  partyName: string;
+  remarks: string;
+  status: ResultStatus | "";
+  pleaderId: string;
+  fees: number;
+}
+
+function today() {
+  return new Date().toISOString().split("T")[0];
+}
 
 export default function BoardPage() {
-  const { user } = useAuth();
-  const fileRef = useRef<HTMLInputElement>(null);
-  const [uploading, setUploading] = useState(false);
-  const [parseResult, setParseResult] = useState<{
-    entries: (ParsedBoardEntry & { sourceFile: string })[];
-    totalParsed: number;
-  } | null>(null);
+  const { user, role } = useAuth();
+  const router = useRouter();
+  const dataOperator = isDataOperator(role);
+
+  const [selectedDate, setSelectedDate] = useState(today());
+  const [rows, setRows] = useState<DraftRow[]>([]);
+  const [pleaders, setPleaders] = useState<Pleader[]>([]);
+  const [feeConfig, setFeeConfig] = useState<Partial<Record<Designation, FeeConfig>>>({});
+  const [loading, setLoading] = useState(true);
+  const [parsing, setParsing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [entries, setEntries] = useState<BoardEntry[]>([]);
-  const [dateFilter, setDateFilter] = useState("");
-  const [searchTerm, setSearchTerm] = useState("");
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editValues, setEditValues] = useState<{ resultStatus: string; fees: number }>({
-    resultStatus: "",
-    fees: 0,
-  });
 
   useEffect(() => {
-    loadEntries();
-  }, [dateFilter]);
+    if (!dataOperator) {
+      router.push("/dashboard");
+    }
+  }, [dataOperator, router]);
 
-  async function loadEntries() {
-    const ref = collection(db, "boardEntries");
+  useEffect(() => {
+    async function loadRefs() {
+      const [pleadersSnap, feesSnap] = await Promise.all([
+        getDocs(query(collection(db, "pleaders"), orderBy("name"))),
+        getDocs(collection(db, "feeConfig")),
+      ]);
+      setPleaders(pleadersSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as Pleader));
+      const feeMap: Partial<Record<Designation, FeeConfig>> = {};
+      feesSnap.docs.forEach((d) => {
+        feeMap[d.id as Designation] = d.data() as FeeConfig;
+      });
+      setFeeConfig(feeMap);
+    }
+    if (dataOperator) loadRefs();
+  }, [dataOperator]);
+
+  useEffect(() => {
+    if (!dataOperator) return;
+    async function loadRows() {
+      setLoading(true);
+      const snap = await getDocs(query(collection(db, "boardEntries"), where("date", "==", selectedDate)));
+      setRows(
+        snap.docs.map((d) => {
+          const data = d.data() as BoardEntry;
+          return {
+            id: d.id,
+            persisted: true,
+            date: data.date,
+            caseType: data.caseType,
+            caseNo: data.caseNo,
+            year: data.year,
+            partyName: data.partyName,
+            remarks: data.remarks,
+            status: data.status,
+            pleaderId: data.pleaderId,
+            fees: data.fees,
+          };
+        })
+      );
+      setLoading(false);
+    }
+    loadRows();
+  }, [selectedDate, dataOperator]);
+
+  const activePleaders = useMemo(() => pleaders.filter((p) => p.active), [pleaders]);
+
+  function updateRow(id: string, patch: Partial<DraftRow>) {
+    setRows((prev) =>
+      prev.map((r) => {
+        if (r.id !== id) return r;
+        const merged = { ...r, ...patch };
+        if ("pleaderId" in patch || "status" in patch) {
+          const pleader = pleaders.find((p) => p.id === merged.pleaderId);
+          merged.fees = computeFees(pleader?.designation || "", merged.status || "", feeConfig);
+        }
+        return merged;
+      })
+    );
+  }
+
+  function addRow() {
+    setRows((prev) => [
+      ...prev,
+      {
+        id: `new-${crypto.randomUUID()}`,
+        persisted: false,
+        date: selectedDate,
+        caseType: "",
+        caseNo: "",
+        year: "",
+        partyName: "",
+        remarks: "",
+        status: "",
+        pleaderId: "",
+        fees: 0,
+      },
+    ]);
+  }
+
+  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setParsing(true);
     try {
-      const q = dateFilter
-        ? query(ref, where("boardDate", "==", dateFilter), orderBy("srNo", "asc"))
-        : query(ref, orderBy("boardDate", "desc"));
-      const snap = await getDocs(q);
-      setEntries(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as BoardEntry));
-    } catch {
-      const snap = await getDocs(query(ref, orderBy("boardDate", "desc")));
-      setEntries(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as BoardEntry));
+      const lines = await extractLinesFromPdf(file);
+      const parsed = parseBoardRowsFromLines(lines);
+      setRows((prev) => [
+        ...prev,
+        ...parsed.map((p) => ({
+          id: `new-${crypto.randomUUID()}`,
+          persisted: false,
+          date: selectedDate,
+          caseType: p.caseType,
+          caseNo: p.caseNo,
+          year: p.year,
+          partyName: p.partyName,
+          remarks: "",
+          status: "" as ResultStatus | "",
+          pleaderId: "",
+          fees: 0,
+        })),
+      ]);
+    } finally {
+      setParsing(false);
+      e.target.value = "";
     }
   }
 
-  async function handleUpload(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    if (!fileRef.current?.files?.length) return;
-    setUploading(true);
-    setParseResult(null);
-
-    const formData = new FormData();
-    for (const file of Array.from(fileRef.current.files)) {
-      formData.append("files", file);
+  async function handleDeleteRow(row: DraftRow) {
+    if (row.persisted) {
+      if (!confirm("Delete this row?")) return;
+      await deleteDoc(doc(db, "boardEntries", row.id));
     }
-
-    try {
-      const res = await fetch("/api/board/parse", { method: "POST", body: formData });
-      const data = await res.json();
-      if (res.ok) {
-        setParseResult(data);
-      } else {
-        alert(data.error || "Failed to parse PDFs");
-      }
-    } catch (err) {
-      alert("Upload failed");
-    }
-    setUploading(false);
+    setRows((prev) => prev.filter((r) => r.id !== row.id));
   }
 
   async function handleSaveAll() {
-    if (!parseResult || !user) return;
+    if (!user) return;
     setSaving(true);
-
-    const batch = parseResult.entries.map((entry) =>
-      addDoc(collection(db, "boardEntries"), {
-        boardDate: entry.boardDate,
-        boardType: entry.boardType,
-        srNo: entry.srNo,
-        caseType: entry.caseType,
-        caseNo: entry.caseNo,
-        caseYear: entry.caseYear,
-        fullCaseNumber: entry.fullCaseNumber,
-        partyName: entry.partyName,
-        remarks: entry.remarks,
-        resultStatus: "",
-        fees: 0,
-        gpAdvocate: entry.gpAdvocate,
-        courtName: entry.courtName,
-        benchId: entry.benchId,
-        linkedCases: entry.linkedCases,
-        sourceFile: entry.sourceFile,
-        uploadedBy: user.uid,
-        uploadedAt: Timestamp.now(),
+    const now = Timestamp.now();
+    const updated = await Promise.all(
+      rows.map(async (row) => {
+        const pleader = pleaders.find((p) => p.id === row.pleaderId);
+        const payload = {
+          date: row.date,
+          caseType: row.caseType,
+          caseNo: row.caseNo,
+          year: row.year,
+          partyName: row.partyName,
+          remarks: row.remarks,
+          status: row.status,
+          pleaderId: row.pleaderId,
+          pleaderName: pleader?.name || "",
+          designation: pleader?.designation || "",
+          fees: row.fees,
+          updatedAt: now,
+          updatedBy: user.uid,
+        };
+        if (row.persisted) {
+          await updateDoc(doc(db, "boardEntries", row.id), payload);
+          return row;
+        }
+        const ref = await addDoc(collection(db, "boardEntries"), {
+          ...payload,
+          createdAt: now,
+          createdBy: user.uid,
+        });
+        return { ...row, id: ref.id, persisted: true };
       })
     );
-
-    await Promise.all(batch);
-    setParseResult(null);
-    if (fileRef.current) fileRef.current.value = "";
-    await loadEntries();
+    setRows(updated);
     setSaving(false);
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm("Delete this entry?")) return;
-    await deleteDoc(doc(db, "boardEntries", id));
-    setEntries((prev) => prev.filter((e) => e.id !== id));
-  }
-
-  async function handleSaveEdit(id: string) {
-    await updateDoc(doc(db, "boardEntries", id), {
-      resultStatus: editValues.resultStatus,
-      fees: editValues.fees,
-    });
-    setEntries((prev) =>
-      prev.map((e) =>
-        e.id === id ? { ...e, resultStatus: editValues.resultStatus, fees: editValues.fees } : e
-      )
-    );
-    setEditingId(null);
-  }
-
-  const filteredEntries = entries.filter((e) => {
-    if (!searchTerm) return true;
-    const s = searchTerm.toLowerCase();
-    return (
-      e.fullCaseNumber.toLowerCase().includes(s) ||
-      e.partyName.toLowerCase().includes(s) ||
-      e.gpAdvocate.toLowerCase().includes(s) ||
-      e.caseType.toLowerCase().includes(s)
-    );
-  });
-
-  const uniqueDates = [...new Set(entries.map((e) => e.boardDate))].sort().reverse();
+  if (!dataOperator) return null;
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Daily Board</h1>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Upload Board PDFs</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleUpload} className="flex flex-wrap items-end gap-4">
-            <div className="min-w-[300px]">
-              <Label>PDF Files (multiple allowed)</Label>
-              <Input ref={fileRef} type="file" accept=".pdf" multiple required />
-            </div>
-            <Button type="submit" disabled={uploading}>
-              <Upload className="h-4 w-4" />
-              {uploading ? "Parsing..." : "Parse PDFs"}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-
-      {parseResult && (
-        <Card>
-          <CardHeader>
-            <CardTitle>
-              Parsed {parseResult.totalParsed} entries
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="mb-4 flex gap-3">
-              <Button onClick={handleSaveAll} disabled={saving}>
-                {saving ? "Saving..." : `Save All ${parseResult.totalParsed} Entries`}
-              </Button>
-              <Button variant="outline" onClick={() => setParseResult(null)}>
-                Discard
-              </Button>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b bg-gray-50 text-left text-gray-500">
-                    <th className="px-3 py-2">#</th>
-                    <th className="px-3 py-2">Date</th>
-                    <th className="px-3 py-2">Case Type</th>
-                    <th className="px-3 py-2">Case No.</th>
-                    <th className="px-3 py-2">Year</th>
-                    <th className="px-3 py-2">Party Name</th>
-                    <th className="px-3 py-2">Remarks</th>
-                    <th className="px-3 py-2">GP / ADDL GP / AGP</th>
-                    <th className="px-3 py-2">Source</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {parseResult.entries.slice(0, 50).map((e, idx) => (
-                    <tr key={idx} className="border-b last:border-0 hover:bg-gray-50">
-                      <td className="px-3 py-2">{e.srNo}</td>
-                      <td className="px-3 py-2 whitespace-nowrap">{e.boardDate}</td>
-                      <td className="px-3 py-2 font-mono">{e.caseType}</td>
-                      <td className="px-3 py-2 font-mono">{e.caseNo}</td>
-                      <td className="px-3 py-2">{e.caseYear}</td>
-                      <td className="px-3 py-2 max-w-[200px] truncate">{e.partyName}</td>
-                      <td className="px-3 py-2 max-w-[150px] truncate">{e.remarks}</td>
-                      <td className="px-3 py-2 max-w-[250px] truncate">{e.gpAdvocate}</td>
-                      <td className="px-3 py-2 text-gray-400 truncate max-w-[120px]">{e.sourceFile}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {parseResult.totalParsed > 50 && (
-                <p className="mt-2 text-sm text-gray-500">
-                  Showing first 50 of {parseResult.totalParsed} entries. All will be saved.
-                </p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Board Entries</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="mb-4 flex flex-wrap gap-4">
-            <div>
-              <Label>Filter by Date</Label>
-              <select
-                value={dateFilter}
-                onChange={(e) => setDateFilter(e.target.value)}
-                className="flex h-10 w-full min-w-[180px] rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
-              >
-                <option value="">All Dates</option>
-                {uniqueDates.map((d) => (
-                  <option key={d} value={d}>{d}</option>
-                ))}
-              </select>
-            </div>
-            <div className="relative flex-1 min-w-[200px]">
-              <Label>Search</Label>
-              <div className="relative">
-                <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                <Input
-                  placeholder="Case number, party, advocate..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-9"
-                />
-              </div>
-            </div>
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <h1 className="text-2xl font-bold">Board Data</h1>
+        <div className="flex items-end gap-4">
+          <div>
+            <Label>Board Date</Label>
+            <Input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} />
           </div>
+          <div>
+            <input
+              type="file"
+              accept=".pdf"
+              className="hidden"
+              id="board-pdf-upload"
+              onChange={handleUpload}
+              disabled={parsing}
+            />
+            <label
+              htmlFor="board-pdf-upload"
+              className={cn(buttonVariants({ variant: "default" }), "cursor-pointer", parsing && "pointer-events-none opacity-50")}
+            >
+              <Upload className="h-4 w-4" />
+              {parsing ? "Parsing..." : "Upload Board PDF"}
+            </label>
+          </div>
+          <Button variant="outline" onClick={addRow}>
+            <Plus className="h-4 w-4" /> Add Row
+          </Button>
+          <Button onClick={handleSaveAll} disabled={saving || rows.length === 0}>
+            {saving ? "Saving..." : "Save"}
+          </Button>
+        </div>
+      </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
+      <Card>
+        <CardHeader>
+          <CardTitle>
+            Cases for {selectedDate} {loading && "(loading...)"}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="overflow-x-auto p-0">
+          {rows.length === 0 && !loading ? (
+            <p className="p-6 text-sm text-gray-400">
+              No rows yet. Upload a board PDF or add a row manually.
+            </p>
+          ) : (
+            <table className="w-full min-w-[1200px] text-sm">
               <thead>
                 <tr className="border-b bg-gray-50 text-left text-gray-500">
-                  <th className="px-3 py-2">#</th>
-                  <th className="px-3 py-2">Date</th>
-                  <th className="px-3 py-2">Case Type</th>
-                  <th className="px-3 py-2">Case No.</th>
-                  <th className="px-3 py-2">Year</th>
-                  <th className="px-3 py-2">Party Name</th>
-                  <th className="px-3 py-2">Remarks</th>
-                  <th className="px-3 py-2">Result / Status</th>
-                  <th className="px-3 py-2">Fees (₹)</th>
-                  <th className="px-3 py-2">GP / ADDL GP / AGP</th>
-                  <th className="px-3 py-2">Actions</th>
+                  <th className="px-3 py-3 font-medium">Date</th>
+                  <th className="px-3 py-3 font-medium">Case Type</th>
+                  <th className="px-3 py-3 font-medium">Case No.</th>
+                  <th className="px-3 py-3 font-medium">Year</th>
+                  <th className="px-3 py-3 font-medium">Party Name</th>
+                  <th className="px-3 py-3 font-medium">Remarks</th>
+                  <th className="px-3 py-3 font-medium">Result / Status</th>
+                  <th className="px-3 py-3 font-medium">Fees (₹)</th>
+                  <th className="px-3 py-3 font-medium">GP / Addl GP / AGP / B&apos;Pnl</th>
+                  <th className="px-3 py-3 font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredEntries.length === 0 ? (
-                  <tr>
-                    <td colSpan={11} className="px-3 py-8 text-center text-gray-400">
-                      No entries found. Upload board PDFs to get started.
+                {rows.map((row) => (
+                  <tr key={row.id} className="border-b last:border-0">
+                    <td className="px-3 py-2">
+                      <Input
+                        type="date"
+                        className="w-36"
+                        value={row.date}
+                        onChange={(e) => updateRow(row.id, { date: e.target.value })}
+                      />
+                    </td>
+                    <td className="px-3 py-2">
+                      <Input
+                        className="w-24"
+                        value={row.caseType}
+                        onChange={(e) => updateRow(row.id, { caseType: e.target.value })}
+                      />
+                    </td>
+                    <td className="px-3 py-2">
+                      <Input
+                        className="w-24"
+                        value={row.caseNo}
+                        onChange={(e) => updateRow(row.id, { caseNo: e.target.value })}
+                      />
+                    </td>
+                    <td className="px-3 py-2">
+                      <Input
+                        className="w-20"
+                        value={row.year}
+                        onChange={(e) => updateRow(row.id, { year: e.target.value })}
+                      />
+                    </td>
+                    <td className="px-3 py-2">
+                      <Input
+                        className="w-48"
+                        value={row.partyName}
+                        onChange={(e) => updateRow(row.id, { partyName: e.target.value })}
+                      />
+                    </td>
+                    <td className="px-3 py-2">
+                      <Input
+                        className="w-48"
+                        value={row.remarks}
+                        onChange={(e) => updateRow(row.id, { remarks: e.target.value })}
+                      />
+                    </td>
+                    <td className="px-3 py-2">
+                      <Select
+                        className="w-44"
+                        value={row.status}
+                        onChange={(e) => updateRow(row.id, { status: e.target.value as ResultStatus })}
+                      >
+                        <option value="">Select...</option>
+                        {RESULT_STATUSES.map((s) => (
+                          <option key={s} value={s}>
+                            {RESULT_STATUS_LABELS[s]}
+                          </option>
+                        ))}
+                      </Select>
+                    </td>
+                    <td className="px-3 py-2 font-medium">₹{row.fees.toLocaleString()}</td>
+                    <td className="px-3 py-2">
+                      <Select
+                        className="w-56"
+                        value={row.pleaderId}
+                        onChange={(e) => updateRow(row.id, { pleaderId: e.target.value })}
+                      >
+                        <option value="">Select...</option>
+                        {activePleaders.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name} ({DESIGNATION_LABELS[p.designation]})
+                          </option>
+                        ))}
+                      </Select>
+                    </td>
+                    <td className="px-3 py-2">
+                      <Button variant="outline" size="sm" onClick={() => handleDeleteRow(row)}>
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
                     </td>
                   </tr>
-                ) : (
-                  filteredEntries.map((e) => (
-                    <tr key={e.id} className="border-b last:border-0 hover:bg-gray-50">
-                      <td className="px-3 py-2">{e.srNo}</td>
-                      <td className="px-3 py-2 whitespace-nowrap">{e.boardDate}</td>
-                      <td className="px-3 py-2 font-mono">{e.caseType}</td>
-                      <td className="px-3 py-2 font-mono">{e.caseNo}</td>
-                      <td className="px-3 py-2">{e.caseYear}</td>
-                      <td className="px-3 py-2 max-w-[180px] truncate" title={e.partyName}>
-                        {e.partyName}
-                      </td>
-                      <td className="px-3 py-2 max-w-[130px] truncate" title={e.remarks}>
-                        {e.remarks}
-                      </td>
-                      <td className="px-3 py-2">
-                        {editingId === e.id ? (
-                          <Input
-                            value={editValues.resultStatus}
-                            onChange={(ev) =>
-                              setEditValues((v) => ({ ...v, resultStatus: ev.target.value }))
-                            }
-                            className="h-7 text-xs w-24"
-                          />
-                        ) : (
-                          e.resultStatus || "—"
-                        )}
-                      </td>
-                      <td className="px-3 py-2">
-                        {editingId === e.id ? (
-                          <Input
-                            type="number"
-                            value={editValues.fees}
-                            onChange={(ev) =>
-                              setEditValues((v) => ({ ...v, fees: parseFloat(ev.target.value) || 0 }))
-                            }
-                            className="h-7 text-xs w-20"
-                          />
-                        ) : e.fees ? (
-                          `₹${e.fees.toLocaleString()}`
-                        ) : (
-                          "—"
-                        )}
-                      </td>
-                      <td className="px-3 py-2 max-w-[200px] truncate" title={e.gpAdvocate}>
-                        {e.gpAdvocate}
-                      </td>
-                      <td className="px-3 py-2">
-                        <div className="flex gap-1">
-                          {editingId === e.id ? (
-                            <>
-                              <Button size="sm" onClick={() => handleSaveEdit(e.id)} className="h-6 text-xs px-2">
-                                Save
-                              </Button>
-                              <Button size="sm" variant="outline" onClick={() => setEditingId(null)} className="h-6 text-xs px-2">
-                                Cancel
-                              </Button>
-                            </>
-                          ) : (
-                            <>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-6 text-xs px-2"
-                                onClick={() => {
-                                  setEditingId(e.id);
-                                  setEditValues({ resultStatus: e.resultStatus, fees: e.fees });
-                                }}
-                              >
-                                Edit
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="destructive"
-                                className="h-6 text-xs px-2"
-                                onClick={() => handleDelete(e.id)}
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </Button>
-                            </>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
+                ))}
               </tbody>
             </table>
-          </div>
+          )}
         </CardContent>
       </Card>
     </div>
