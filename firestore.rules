@@ -6,38 +6,47 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function role() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
     function isAdmin() {
-      return isAuthenticated() &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+      return isAuthenticated() && role() == 'admin';
+    }
+
+    function isDataOperator() {
+      return isAuthenticated() && role() == 'data_operator';
+    }
+
+    function isBillViewer() {
+      return isAuthenticated() && role() == 'bill_viewer';
     }
 
     function isOwner(uid) {
       return isAuthenticated() && request.auth.uid == uid;
     }
 
+    // Logins are provisioned by an Admin via the server-side API route
+    // (firebase-admin, bypasses these rules). These rules are defense-in-depth
+    // for any direct client reads/writes.
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
-      allow create: if isOwner(userId);
-      allow update: if isOwner(userId) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role'])
-                     || isAdmin();
+      allow write: if isAdmin();
     }
 
-    match /cases/{caseId} {
-      allow read: if isAdmin() || resource.data.assignedTo == request.auth.uid;
-      allow create: if isAuthenticated();
-      allow update, delete: if isAdmin();
-    }
-
-    match /entries/{entryId} {
-      allow read: if isAdmin() || resource.data.enteredBy == request.auth.uid;
-      allow create: if isAuthenticated();
-      allow update, delete: if isAdmin() || resource.data.enteredBy == request.auth.uid;
-    }
-
-    match /documents/{docId} {
+    match /pleaders/{pleaderId} {
       allow read: if isAuthenticated();
-      allow create: if isAuthenticated();
-      allow delete: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    match /feeConfig/{designation} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /boardEntries/{entryId} {
+      allow read: if isAdmin() || isDataOperator() || isBillViewer();
+      allow write: if isDataOperator();
     }
   }
 }
