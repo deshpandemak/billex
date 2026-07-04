@@ -8,7 +8,7 @@ test.describe("Login page", () => {
     await expect(page.locator("h3")).toContainText("BillEx");
     await expect(page.locator('input[type="email"]')).toBeVisible();
     await expect(page.locator('input[type="password"]')).toBeVisible();
-    await expect(page.locator('button[type="submit"]')).toContainText("Sign In");
+    await expect(page.locator('button[type="submit"]')).toContainText("Sign in");
   });
 
   test("shows error for invalid credentials", async ({ page }) => {

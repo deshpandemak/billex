@@ -19,26 +19,26 @@ test.describe("Navigation and auth guards", () => {
     expect(page.url()).toContain("/login");
   });
 
-  test("cases page redirects to login when unauthenticated", async ({ page }) => {
-    await page.goto("/cases");
+  test("billing page redirects to login when unauthenticated", async ({ page }) => {
+    await page.goto("/billing");
     await page.waitForTimeout(3000);
     expect(page.url()).toContain("/login");
   });
 
-  test("entries page redirects to login when unauthenticated", async ({ page }) => {
-    await page.goto("/entries");
+  test("admin pleaders page redirects to login when unauthenticated", async ({ page }) => {
+    await page.goto("/admin/pleaders");
     await page.waitForTimeout(3000);
     expect(page.url()).toContain("/login");
   });
 
-  test("reports page redirects to login when unauthenticated", async ({ page }) => {
-    await page.goto("/reports");
+  test("admin fees page redirects to login when unauthenticated", async ({ page }) => {
+    await page.goto("/admin/fees");
     await page.waitForTimeout(3000);
     expect(page.url()).toContain("/login");
   });
 
-  test("admin page redirects to login when unauthenticated", async ({ page }) => {
-    await page.goto("/admin");
+  test("admin users page redirects to login when unauthenticated", async ({ page }) => {
+    await page.goto("/admin/users");
     await page.waitForTimeout(3000);
     expect(page.url()).toContain("/login");
   });

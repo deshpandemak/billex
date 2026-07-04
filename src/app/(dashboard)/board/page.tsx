@@ -10,7 +10,6 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/context";
 import { isDataOperator } from "@/lib/auth/roles";
 import { computeFees } from "@/lib/billing/fees";
-import { extractLinesFromPdf, parseBoardRowsFromLines } from "@/lib/board/pdfParse";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -36,6 +35,19 @@ interface DraftRow {
 
 function today() {
   return new Date().toISOString().split("T")[0];
+}
+
+function normalizeName(s: string) {
+  return s.toUpperCase().replace(/[^A-Z\s]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function matchPleader(gpAdvocateText: string, candidates: Pleader[]): string {
+  const normalizedText = normalizeName(gpAdvocateText);
+  const matches = candidates.filter((p) => {
+    const words = normalizeName(p.name).split(" ").filter((w) => w.length >= 3);
+    return words.length > 0 && words.every((w) => normalizedText.includes(w));
+  });
+  return matches.length === 1 ? matches[0].id : "";
 }
 
 export default function BoardPage() {
@@ -137,12 +149,28 @@ export default function BoardPage() {
   }
 
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
     setParsing(true);
     try {
-      const lines = await extractLinesFromPdf(file);
-      const parsed = parseBoardRowsFromLines(lines);
+      const formData = new FormData();
+      for (const file of Array.from(files)) {
+        formData.append("files", file);
+      }
+      const res = await fetch("/api/board/parse", { method: "POST", body: formData });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "Failed to parse PDF(s).");
+        return;
+      }
+      const parsed = data.entries as {
+        caseType: string;
+        caseNo: string;
+        caseYear: string;
+        partyName: string;
+        remarks: string;
+        gpAdvocate: string;
+      }[];
       setRows((prev) => [
         ...prev,
         ...parsed.map((p) => ({
@@ -151,11 +179,11 @@ export default function BoardPage() {
           date: selectedDate,
           caseType: p.caseType,
           caseNo: p.caseNo,
-          year: p.year,
+          year: p.caseYear,
           partyName: p.partyName,
-          remarks: "",
+          remarks: p.remarks,
           status: "" as ResultStatus | "",
-          pleaderId: "",
+          pleaderId: matchPleader(p.gpAdvocate, activePleaders),
           fees: 0,
         })),
       ]);
@@ -226,6 +254,7 @@ export default function BoardPage() {
             <input
               type="file"
               accept=".pdf"
+              multiple
               className="hidden"
               id="board-pdf-upload"
               onChange={handleUpload}

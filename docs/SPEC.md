@@ -32,7 +32,7 @@ When a board row is assigned a pleader and a result status, its Fees column is l
 ## Board Data (`/board`, Data Operator only)
 
 1. Pick a board date.
-2. Optionally upload a board PDF; text is extracted client-side and a best-effort regex pass pre-fills Case Type / Case No. / Year for detected rows (pattern: `<TYPE> No. <number>/<year>`). This is best-effort — the operator reviews and completes every row before saving, since board PDF layouts vary.
+2. Optionally upload one or more board PDFs; `POST /api/board/parse` extracts text server-side (`pdf-parse`) and runs it through a Bombay High Court cause-list-aware parser (`src/lib/parser/board-parser.ts`) that recognizes the DAILY MAIN/SUPPLEMENTARY and WEEKLY MAIN header formats, case-number patterns (WP, PIL, CP, IA, …/no/year), and the GP/Addl GP/AGP advocate line. Each parsed row is pre-filled (Case Type / Case No. / Year / Party Name / Remarks) and best-effort matched against the active pleader roster by name; unmatched rows are left blank. This is still best-effort — the operator reviews and completes every row before saving, since board PDF layouts vary.
 3. Table columns: Date (date picker, editable per row), Case Type, Case No., Year, Party Name (free text), Remarks (free text), Result/Status (dropdown: Adjourned / Heard & Adjourned / Disposed), Fees (₹, auto-computed), GP/Addl GP/AGP/B'Pnl (dropdown of active pleaders, showing name + designation).
 4. Rows can be added, edited inline, or deleted; "Save" persists all rows for the visible date to Firestore (`boardEntries`).
 
