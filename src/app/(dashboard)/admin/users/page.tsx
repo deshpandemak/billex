@@ -15,7 +15,7 @@ import type { AppUser, UserRole } from "@/types";
 import { ROLE_LABELS } from "@/types";
 
 export default function AdminUsersPage() {
-  const { user, role } = useAuth();
+  const { user, role, loading: authLoading } = useAuth();
   const router = useRouter();
   const admin = isAdmin(role);
   const [users, setUsers] = useState<AppUser[]>([]);
@@ -24,18 +24,24 @@ export default function AdminUsersPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!admin) {
-      router.push("/dashboard");
-      return;
-    }
+    if (authLoading) return;
+    if (!admin) { router.push("/dashboard"); return; }
     loadUsers();
-  }, [admin, router]);
+  }, [admin, authLoading, router]);
 
   async function loadUsers() {
     setLoading(true);
-    const snap = await getDocs(query(collection(db, "users"), orderBy("email")));
-    setUsers(snap.docs.map((d) => ({ uid: d.id, ...d.data() }) as AppUser));
-    setLoading(false);
+    setError(null);
+    try {
+      const snap = await getDocs(query(collection(db, "users"), orderBy("email")));
+      setUsers(snap.docs.map((d) => ({ uid: d.id, ...d.data() }) as AppUser));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(`Failed to load users: ${msg}`);
+      console.error("[admin/users] loadUsers", err);
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function authedFetch(input: string, init: RequestInit) {
@@ -54,7 +60,8 @@ export default function AdminUsersPage() {
     e.preventDefault();
     setError(null);
     setCreating(true);
-    const form = new FormData(e.currentTarget);
+    const formEl = e.currentTarget; // capture before first await
+    const form = new FormData(formEl);
     const body = {
       email: form.get("email"),
       displayName: form.get("displayName"),
@@ -69,34 +76,55 @@ export default function AdminUsersPage() {
       const data = await res.json().catch(() => ({}));
       setError(data.error || "Failed to create login.");
     } else {
-      e.currentTarget.reset();
+      formEl.reset();
       await loadUsers();
     }
     setCreating(false);
   }
 
   async function updateRole(uid: string, newRole: UserRole) {
-    await authedFetch("/api/admin/users", {
+    setError(null);
+    const res = await authedFetch("/api/admin/users", {
       method: "PATCH",
       body: JSON.stringify({ uid, role: newRole }),
     });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error || "Failed to update role.");
+      console.error("[admin/users] updateRole", res.status, data);
+      return;
+    }
     setUsers((prev) => prev.map((u) => (u.uid === uid ? { ...u, role: newRole } : u)));
   }
 
   async function toggleActive(uid: string, active: boolean) {
-    await authedFetch("/api/admin/users", {
+    setError(null);
+    const res = await authedFetch("/api/admin/users", {
       method: "PATCH",
       body: JSON.stringify({ uid, active: !active }),
     });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error || "Failed to update status.");
+      console.error("[admin/users] toggleActive", res.status, data);
+      return;
+    }
     setUsers((prev) => prev.map((u) => (u.uid === uid ? { ...u, active: !active } : u)));
   }
 
   async function handleDelete(uid: string) {
     if (!confirm("Delete this login? This cannot be undone.")) return;
-    await authedFetch("/api/admin/users", {
+    setError(null);
+    const res = await authedFetch("/api/admin/users", {
       method: "DELETE",
       body: JSON.stringify({ uid }),
     });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error || "Failed to delete login.");
+      console.error("[admin/users] handleDelete", res.status, data);
+      return;
+    }
     setUsers((prev) => prev.filter((u) => u.uid !== uid));
   }
 

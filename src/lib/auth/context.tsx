@@ -34,23 +34,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setState({ user: null, role: null, loading: false, error: null });
         return;
       }
+      try {
+        const userRef = doc(db, "users", user.uid);
+        const snap = await getDoc(userRef);
 
-      const userRef = doc(db, "users", user.uid);
-      const snap = await getDoc(userRef);
+        if (!snap.exists() || snap.data().active === false) {
+          await signOut(auth);
+          setState({
+            user: null,
+            role: null,
+            loading: false,
+            error: "This account has not been set up yet. Contact your Admin.",
+          });
+          return;
+        }
 
-      if (!snap.exists() || snap.data().active === false) {
-        await signOut(auth);
+        await setDoc(userRef, { lastLoginAt: Timestamp.now() }, { merge: true });
+        setState({ user, role: snap.data().role as UserRole, loading: false, error: null });
+      } catch (err) {
+        console.error("[auth] onAuthStateChanged failed", err);
         setState({
           user: null,
           role: null,
           loading: false,
-          error: "This account has not been set up yet. Contact your Admin.",
+          error: "Failed to load account. Please refresh the page.",
         });
-        return;
       }
-
-      await setDoc(userRef, { lastLoginAt: Timestamp.now() }, { merge: true });
-      setState({ user, role: snap.data().role as UserRole, loading: false, error: null });
     });
   }, []);
 

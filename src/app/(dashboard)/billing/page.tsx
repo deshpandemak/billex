@@ -16,7 +16,7 @@ import type { BoardEntry, Designation } from "@/types";
 import { DESIGNATION_LABELS, DESIGNATIONS, RESULT_STATUS_LABELS } from "@/types";
 
 export default function BillingPage() {
-  const { role } = useAuth();
+  const { role, loading: authLoading } = useAuth();
   const router = useRouter();
   const allowed = isBillViewer(role) || isAdmin(role);
 
@@ -26,26 +26,36 @@ export default function BillingPage() {
   const [rows, setRows] = useState<BoardEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (authLoading) return;
     if (!allowed) router.push("/dashboard");
-  }, [allowed, router]);
+  }, [allowed, authLoading, router]);
 
   async function generateReport() {
     setLoading(true);
-    const ref = collection(db, "boardEntries");
-    const constraints = [];
-    if (dateFrom) constraints.push(where("date", ">=", dateFrom));
-    if (dateTo) constraints.push(where("date", "<=", dateTo));
+    setError(null);
+    try {
+      const ref = collection(db, "boardEntries");
+      const constraints = [];
+      if (dateFrom) constraints.push(where("date", ">=", dateFrom));
+      if (dateTo) constraints.push(where("date", "<=", dateTo));
 
-    const snap = await getDocs(query(ref, ...constraints));
-    let entries = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as BoardEntry);
-    if (designation) entries = entries.filter((e) => e.designation === designation);
-    entries.sort((a, b) => a.date.localeCompare(b.date));
+      const snap = await getDocs(query(ref, ...constraints));
+      let entries = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as BoardEntry);
+      if (designation) entries = entries.filter((e) => e.designation === designation);
+      entries.sort((a, b) => a.date.localeCompare(b.date));
 
-    setRows(entries);
-    setSearched(true);
-    setLoading(false);
+      setRows(entries);
+      setSearched(true);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(`Failed to load report: ${msg}`);
+      console.error("[billing] generateReport", err);
+    } finally {
+      setLoading(false);
+    }
   }
 
   function exportCSV() {
@@ -118,6 +128,7 @@ export default function BillingPage() {
               </Button>
             )}
           </div>
+          {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
         </CardContent>
       </Card>
 

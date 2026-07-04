@@ -17,7 +17,7 @@ import type { Designation, Pleader } from "@/types";
 import { DESIGNATION_LABELS, DESIGNATIONS } from "@/types";
 
 export default function AdminPleadersPage() {
-  const { user, role } = useAuth();
+  const { user, role, loading: authLoading } = useAuth();
   const router = useRouter();
   const admin = isAdmin(role);
   const [pleaders, setPleaders] = useState<Pleader[]>([]);
@@ -26,12 +26,10 @@ export default function AdminPleadersPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!admin) {
-      router.push("/dashboard");
-      return;
-    }
+    if (authLoading) return;
+    if (!admin) { router.push("/dashboard"); return; }
     loadPleaders();
-  }, [admin, router]);
+  }, [admin, authLoading, router]);
 
   async function loadPleaders() {
     setLoading(true);
@@ -53,8 +51,9 @@ export default function AdminPleadersPage() {
     if (!user) return;
     setError(null);
     setSaving(true);
+    const formEl = e.currentTarget; // capture before first await
     try {
-      const form = new FormData(e.currentTarget);
+      const form = new FormData(formEl);
       const now = Timestamp.now();
       await addDoc(collection(db, "pleaders"), {
         name: form.get("name"),
@@ -64,7 +63,7 @@ export default function AdminPleadersPage() {
         updatedAt: now,
         createdBy: user.uid,
       });
-      e.currentTarget.reset();
+      formEl.reset();
       await loadPleaders();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

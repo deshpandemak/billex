@@ -51,7 +51,7 @@ function matchPleader(gpAdvocateText: string, candidates: Pleader[]): string {
 }
 
 export default function BoardPage() {
-  const { user, role } = useAuth();
+  const { user, role, loading: authLoading } = useAuth();
   const router = useRouter();
   const dataOperator = isDataOperator(role);
 
@@ -62,12 +62,12 @@ export default function BoardPage() {
   const [loading, setLoading] = useState(true);
   const [parsing, setParsing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!dataOperator) {
-      router.push("/dashboard");
-    }
-  }, [dataOperator, router]);
+    if (authLoading) return;
+    if (!dataOperator) router.push("/dashboard");
+  }, [dataOperator, authLoading, router]);
 
   useEffect(() => {
     async function loadRefs() {
@@ -196,53 +196,73 @@ export default function BoardPage() {
   async function handleDeleteRow(row: DraftRow) {
     if (row.persisted) {
       if (!confirm("Delete this row?")) return;
-      await deleteDoc(doc(db, "boardEntries", row.id));
+      try {
+        await deleteDoc(doc(db, "boardEntries", row.id));
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setError(`Failed to delete row: ${msg}`);
+        console.error("[board] handleDeleteRow", err);
+        return;
+      }
     }
     setRows((prev) => prev.filter((r) => r.id !== row.id));
   }
 
   async function handleSaveAll() {
     if (!user) return;
+    setError(null);
     setSaving(true);
-    const now = Timestamp.now();
-    const updated = await Promise.all(
-      rows.map(async (row) => {
-        const pleader = pleaders.find((p) => p.id === row.pleaderId);
-        const payload = {
-          date: row.date,
-          caseType: row.caseType,
-          caseNo: row.caseNo,
-          year: row.year,
-          partyName: row.partyName,
-          remarks: row.remarks,
-          status: row.status,
-          pleaderId: row.pleaderId,
-          pleaderName: pleader?.name || "",
-          designation: pleader?.designation || "",
-          fees: row.fees,
-          updatedAt: now,
-          updatedBy: user.uid,
-        };
-        if (row.persisted) {
-          await updateDoc(doc(db, "boardEntries", row.id), payload);
-          return row;
-        }
-        const ref = await addDoc(collection(db, "boardEntries"), {
-          ...payload,
-          createdAt: now,
-          createdBy: user.uid,
-        });
-        return { ...row, id: ref.id, persisted: true };
-      })
-    );
-    setRows(updated);
-    setSaving(false);
+    try {
+      const now = Timestamp.now();
+      const updated = await Promise.all(
+        rows.map(async (row) => {
+          const pleader = pleaders.find((p) => p.id === row.pleaderId);
+          const payload = {
+            date: row.date,
+            caseType: row.caseType,
+            caseNo: row.caseNo,
+            year: row.year,
+            partyName: row.partyName,
+            remarks: row.remarks,
+            status: row.status,
+            pleaderId: row.pleaderId,
+            pleaderName: pleader?.name || "",
+            designation: pleader?.designation || "",
+            fees: row.fees,
+            updatedAt: now,
+            updatedBy: user.uid,
+          };
+          if (row.persisted) {
+            await updateDoc(doc(db, "boardEntries", row.id), payload);
+            return row;
+          }
+          const ref = await addDoc(collection(db, "boardEntries"), {
+            ...payload,
+            createdAt: now,
+            createdBy: user.uid,
+          });
+          return { ...row, id: ref.id, persisted: true };
+        })
+      );
+      setRows(updated);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(`Failed to save: ${msg}`);
+      console.error("[board] handleSaveAll", err);
+    } finally {
+      setSaving(false);
+    }
   }
 
   if (!dataOperator) return null;
 
   return (
     <div className="space-y-6">
+      {error && (
+        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <h1 className="text-2xl font-bold">Board Data</h1>
         <div className="flex items-end gap-4">
