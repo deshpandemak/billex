@@ -75,11 +75,15 @@ service cloud.firestore {
 
     // ── users ───────────────────────────────────────────────────
     // Written by Admin-only API route (firebase-admin bypasses rules).
-    // Rules are defense-in-depth: users can read their own doc; only Admin
-    // can write (prevents self-role-escalation).
+    // Users can read their own doc and update only lastLoginAt (set on login).
+    // All other writes (role, active, pleaderId) are admin-only.
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
-      allow write: if isAdmin();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() ||
+        (isOwner(userId) &&
+         request.resource.data.diff(resource.data).affectedKeys()
+           .hasOnly(['lastLoginAt']));
     }
 
     // ── pleaders ────────────────────────────────────────────────

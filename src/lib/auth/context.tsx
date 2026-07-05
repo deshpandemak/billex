@@ -49,7 +49,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        await setDoc(userRef, { lastLoginAt: Timestamp.now() }, { merge: true });
+        // Non-fatal: update lastLoginAt. Runs after setState so a rules/network
+        // issue never blocks login.
+        setDoc(userRef, { lastLoginAt: Timestamp.now() }, { merge: true }).catch(
+          (e) => console.warn("[auth] lastLoginAt update failed", e)
+        );
         setState({ user, role: snap.data().role as UserRole, loading: false, error: null });
       } catch (err) {
         console.error("[auth] onAuthStateChanged failed", err);
