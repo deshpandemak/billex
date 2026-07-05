@@ -28,15 +28,16 @@ const CASE_REF_REGEX = /([A-Z]{2,8}(?:\([A-Z]+\))?)\/([\d]+)\/([\d]{4})/g;
 //   APPELLATE SIDE - DAILY SUPPLEMENTARY 19/12/2025
 //   WEEKLY MAIN - 1 18/12/2025
 //   SUPPLY BOARD DT 05/05/2026
+//   SUPPLY BOARD DT. 07.05.2026   (period after DT, dot-separated date)
 //   BOARD DT 05/05/2026
 const DATE_REGEX =
-  /(?:DAILY\s+(?:MAIN|SUPPLEMENTARY)|WEEKLY\s+MAIN(?:\s*-\s*\d+)?|SUPPLY\s+BOARD(?:\s+DT)?|BOARD(?:\s+DT)?)\s+(\d{2}\/\d{2}\/\d{4})/;
+  /(?:DAILY\s+(?:MAIN|SUPPLEMENTARY)|WEEKLY\s+MAIN(?:\s*-\s*\d+)?|SUPPLY\s+BOARD(?:\s+DT\.?)?|BOARD(?:\s+DT\.?)?)\s+(\d{2}[\/\.]\d{2}[\/\.]\d{4})/;
 
-// Fallback: any DD/MM/YYYY date when the header pattern above doesn't match
-const ANY_DATE_REGEX = /\b(\d{2}\/\d{2}\/\d{4})\b/;
+// Fallback: any DD/MM/YYYY or DD.MM.YYYY date when the header pattern above doesn't match
+const ANY_DATE_REGEX = /\b(\d{2}[\/\.]\d{2}[\/\.]\d{4})\b/;
 
 const BOARD_TYPE_REGEX =
-  /(DAILY\s+(?:MAIN|SUPPLEMENTARY)|WEEKLY\s+MAIN(?:\s*-\s*\d+)?|SUPPLY\s+BOARD(?:\s+DT)?|BOARD(?:\s+DT)?)/;
+  /(DAILY\s+(?:MAIN|SUPPLEMENTARY)|WEEKLY\s+MAIN(?:\s*-\s*\d+)?|SUPPLY\s+BOARD(?:\s+DT\.?)?|BOARD(?:\s+DT\.?)?)/;
 
 // Section headers appear as either:
 //   * FRESH ADMISSION *               (old format, line ends with *)
@@ -56,7 +57,7 @@ const TITLE_REGEX_G = /\b(?:SMT|SHRI|MS|DR|MR)\.?/gi;
 const GP_DESIGNATION_REGEX = /\b(?:ADDIL?\.?\s*|ADDL\.?\s*)?(?:GP|AGP|B['`]PNL)\b/i;
 
 function parseDate(raw: string): string {
-  const [dd, mm, yyyy] = raw.split("/");
+  const [dd, mm, yyyy] = raw.split(/[\/\.]/);
   return `${yyyy}-${mm}-${dd}`;
 }
 

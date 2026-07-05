@@ -116,11 +116,11 @@ service cloud.firestore {
       allow read: if isAdmin() || isDataOperator() ||
         (isBillViewer() && resource.data.pleaderId == userDoc().pleaderId);
 
-      allow create: if isDataOperator();
+      allow create: if isDataOperator() || isAdmin();
 
-      // Data operator: can update any field (status changes, finalization)
+      // Admin/Data operator: can update any field (status changes, finalization)
       // Bill viewer: can only update reviewer remark fields on their own bill
-      allow update: if isDataOperator() ||
+      allow update: if isDataOperator() || isAdmin() ||
         (isBillViewer() &&
          resource.data.pleaderId == userDoc().pleaderId &&
          resource.data.status != 'final' &&

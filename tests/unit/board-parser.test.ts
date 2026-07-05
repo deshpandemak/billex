@@ -75,6 +75,33 @@ C.R. No: 46 , , Bench ID: 5822
     expect(entries[0].boardType).toBe("SUPPLY BOARD");
   });
 
+  it("extracts date from SUPPLY BOARD DT. header with period after DT and dot-separated date", () => {
+    const text = `Page: 1 APPELLATE SIDE - SUPPLY BOARD DT. 07.05.2026
+C.R. No: 46 , , Bench ID: 5916
+* FOR HEARING *
+---------------
+12 WP/4292/2026 Vishal Jain SMT. NEHA BHIDE, GP`;
+
+    const entries = parseBoardPdf(text, "SUPPLY BOARD DT. 07.05.2026 copy.pdf");
+    expect(entries).toHaveLength(1);
+    expect(entries[0].boardDate).toBe("2026-05-07");
+    expect(entries[0].boardType).toBe("SUPPLY BOARD DT.");
+  });
+
+  it("falls back to dot-separated DD.MM.YYYY date when no board-type header matches", () => {
+    const text = `HIGH COURT OF BOMBAY
+APPELLATE SIDE
+Date: 03.03.2026
+Court Room No: 46
+
+* FOR DISPOSAL *
+----------------
+5 WP/1234/2024 SOME ADVOCATE SMT. NEHA S. BHIDE, GP`;
+
+    const entries = parseBoardPdf(text, "test.pdf");
+    expect(entries[0].boardDate).toBe("2026-03-03");
+  });
+
   it("falls back to any DD/MM/YYYY date in first 30 lines when no board-type header found", () => {
     const text = `HIGH COURT OF BOMBAY
 APPELLATE SIDE
