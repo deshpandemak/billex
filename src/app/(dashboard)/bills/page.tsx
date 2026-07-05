@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
-  addDoc, collection, getDocs, orderBy, query, Timestamp, where,
+  addDoc, collection, doc, getDoc, getDocs, orderBy, query, Timestamp, where,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase/client";
 import { useAuth } from "@/lib/auth/context";
@@ -60,22 +60,26 @@ export default function BillsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [billsSnap, pleadersSnap] = await Promise.all([
-        getDocs(query(collection(db, "bills"), orderBy("createdAt", "desc"))),
-        getDocs(query(collection(db, "pleaders"), orderBy("name"))),
-      ]);
-      const allPleaders = pleadersSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as Pleader);
-      setPleaders(allPleaders);
+      const pleadersSnap = await getDocs(query(collection(db, "pleaders"), orderBy("name")));
+      setPleaders(pleadersSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as Pleader));
 
-      let allBills = billsSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as Bill);
-
-      // Bill viewers only see their linked pleader's bills
+      // Bill viewers may only read their own pleader's bills per Firestore rules.
+      // Issue the scoped query upfront to avoid PERMISSION_DENIED on the broad collection read.
+      let billsSnap;
       if (billViewer && !admin && !dataOp) {
-        const userSnap = await getDocs(query(collection(db, "users"), where("__name__", "==", user!.uid)));
-        const myPleaderId = userSnap.docs[0]?.data().pleaderId ?? null;
-        allBills = myPleaderId ? allBills.filter((b) => b.pleaderId === myPleaderId) : [];
+        const userSnap = await getDoc(doc(db, "users", user!.uid));
+        const myPleaderId = userSnap.data()?.pleaderId as string | undefined;
+        if (!myPleaderId) {
+          setBills([]);
+          return;
+        }
+        billsSnap = await getDocs(
+          query(collection(db, "bills"), where("pleaderId", "==", myPleaderId), orderBy("createdAt", "desc"))
+        );
+      } else {
+        billsSnap = await getDocs(query(collection(db, "bills"), orderBy("createdAt", "desc")));
       }
-      setBills(allBills);
+      setBills(billsSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as Bill));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(`Failed to load bills: ${msg}`);

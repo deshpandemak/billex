@@ -123,6 +123,7 @@ service cloud.firestore {
       allow update: if isDataOperator() ||
         (isBillViewer() &&
          resource.data.pleaderId == userDoc().pleaderId &&
+         resource.data.status != 'final' &&
          request.resource.data.diff(resource.data).affectedKeys()
            .hasOnly(['reviewerRemarks', 'reviewerRemarksBy', 'reviewerRemarksAt', 'status']) &&
          request.resource.data.status == 'under_revision');

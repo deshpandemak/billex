@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { collection, getDocs, limit, orderBy, query, where } from "firebase/firestore";
+import { collection, getDocs, limit, orderBy, query } from "firebase/firestore";
 import { db } from "@/lib/firebase/client";
 import { useAuth } from "@/lib/auth/context";
 import { isAdmin } from "@/lib/auth/roles";
@@ -60,17 +60,14 @@ export default function AuditPage() {
     setLoading(true);
     setError(null);
     try {
-      const constraints: Parameters<typeof query>[1][] = [
-        orderBy("timestamp", "desc"),
-        limit(PAGE_SIZE),
-      ];
-      if (filterEntityType) constraints.push(where("entityType", "==", filterEntityType));
-      if (filterAction) constraints.push(where("action", "==", filterAction));
-
-      const snap = await getDocs(query(collection(db, "auditLogs"), ...constraints));
+      const snap = await getDocs(
+        query(collection(db, "auditLogs"), orderBy("timestamp", "desc"), limit(PAGE_SIZE))
+      );
       let results = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as AuditLog);
 
-      // Client-side date and user filtering (Firestore can't combine arbitrary fields without composite indexes)
+      // All field filtering done client-side to avoid composite index requirements
+      if (filterEntityType) results = results.filter((l) => l.entityType === filterEntityType);
+      if (filterAction) results = results.filter((l) => l.action === filterAction);
       if (filterDateFrom) {
         const from = new Date(filterDateFrom).getTime();
         results = results.filter((l) => l.timestamp?.toDate?.().getTime() >= from);

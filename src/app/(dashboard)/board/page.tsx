@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   addDoc, collection, deleteDoc, doc, getDocs, orderBy, query, Timestamp, updateDoc, where,
 } from "firebase/firestore";
-import { db } from "@/lib/firebase/client";
+import { auth, db } from "@/lib/firebase/client";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/context";
 import { isDataOperator } from "@/lib/auth/roles";
@@ -72,16 +72,22 @@ export default function BoardPage() {
 
   useEffect(() => {
     async function loadRefs() {
-      const [pleadersSnap, feesSnap] = await Promise.all([
-        getDocs(query(collection(db, "pleaders"), orderBy("name"))),
-        getDocs(collection(db, "feeConfig")),
-      ]);
-      setPleaders(pleadersSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as Pleader));
-      const feeMap: Partial<Record<Designation, FeeConfig>> = {};
-      feesSnap.docs.forEach((d) => {
-        feeMap[d.id as Designation] = d.data() as FeeConfig;
-      });
-      setFeeConfig(feeMap);
+      try {
+        const [pleadersSnap, feesSnap] = await Promise.all([
+          getDocs(query(collection(db, "pleaders"), orderBy("name"))),
+          getDocs(collection(db, "feeConfig")),
+        ]);
+        setPleaders(pleadersSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as Pleader));
+        const feeMap: Partial<Record<Designation, FeeConfig>> = {};
+        feesSnap.docs.forEach((d) => {
+          feeMap[d.id as Designation] = d.data() as FeeConfig;
+        });
+        setFeeConfig(feeMap);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setError(`Failed to load reference data: ${msg}`);
+        console.error("[board] loadRefs", err);
+      }
     }
     if (dataOperator) loadRefs();
   }, [dataOperator]);
@@ -158,7 +164,12 @@ export default function BoardPage() {
       for (const file of Array.from(files)) {
         formData.append("files", file);
       }
-      const res = await fetch("/api/board/parse", { method: "POST", body: formData });
+      const token = await auth.currentUser?.getIdToken();
+      const res = await fetch("/api/board/parse", {
+        method: "POST",
+        body: formData,
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
       const data = await res.json();
       if (!res.ok) {
         alert(data.error || "Failed to parse PDF(s).");
@@ -221,10 +232,11 @@ export default function BoardPage() {
     setError(null);
     setSaving(true);
     const actor = { uid: user.uid, displayName: user.displayName || user.email || "", role };
+    const now = Timestamp.now();
+    const rowSnapshot = rows;
     try {
-      const now = Timestamp.now();
-      const updated = await Promise.all(
-        rows.map(async (row) => {
+      const results = await Promise.allSettled(
+        rowSnapshot.map(async (row) => {
           const pleader = pleaders.find((p) => p.id === row.pleaderId);
           const payload = {
             date: row.date,
@@ -259,7 +271,17 @@ export default function BoardPage() {
           return { ...row, id: ref.id, persisted: true };
         })
       );
-      setRows(updated);
+
+      // Apply committed state to each row; leave failed rows unchanged so retry won't duplicate them
+      setRows(rowSnapshot.map((row, i) => {
+        const r = results[i];
+        return r.status === "fulfilled" ? r.value : row;
+      }));
+
+      const failedCount = results.filter((r) => r.status === "rejected").length;
+      if (failedCount > 0) {
+        setError(`${failedCount} row(s) failed to save. Please correct and try again.`);
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(`Failed to save: ${msg}`);
@@ -331,7 +353,7 @@ export default function BoardPage() {
                   <th className="px-3 py-3 font-medium">Case Type</th>
                   <th className="px-3 py-3 font-medium">Case No.</th>
                   <th className="px-3 py-3 font-medium">Year</th>
-                  <th className="px-3 py-3 font-medium">Party Name</th>
+                  <th className="px-3 py-3 font-medium">Petitioner Advocate</th>
                   <th className="px-3 py-3 font-medium">Remarks</th>
                   <th className="px-3 py-3 font-medium">Result / Status</th>
                   <th className="px-3 py-3 font-medium">Fees (₹)</th>
