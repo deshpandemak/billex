@@ -34,6 +34,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setState({ user: null, role: null, loading: false, error: null });
         return;
       }
+      // Hold loading:true while we verify the user in Firestore.
+      // Without this, the brief window between onAuthStateChanged firing and
+      // getDoc completing has loading:false + user:null, which causes the
+      // dashboard layout to redirect back to /login.
+      setState({ user: null, role: null, loading: true, error: null });
       try {
         const userRef = doc(db, "users", user.uid);
         const snap = await getDoc(userRef);
