@@ -28,11 +28,19 @@ function getAdminApp(): App {
     );
   }
 
+  // Strip surrounding JSON quotes if accidentally included when setting the secret,
+  // then convert literal \n escape sequences to real newlines.
+  let parsedKey = privateKey.trim();
+  if (parsedKey.startsWith('"') && parsedKey.endsWith('"')) {
+    parsedKey = parsedKey.slice(1, -1);
+  }
+  parsedKey = parsedKey.replace(/\\n/g, "\n");
+
   app = initializeApp({
     credential: cert({
       projectId,
       clientEmail,
-      privateKey: privateKey.replace(/\\n/g, "\n"),
+      privateKey: parsedKey,
     }),
   });
   return app;
