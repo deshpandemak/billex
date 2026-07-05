@@ -1,0 +1,289 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import {
+  addDoc, collection, getDocs, orderBy, query, Timestamp, where,
+} from "firebase/firestore";
+import { db } from "@/lib/firebase/client";
+import { useAuth } from "@/lib/auth/context";
+import { isAdmin, isBillViewer, isDataOperator } from "@/lib/auth/roles";
+import { logAudit } from "@/lib/audit";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { FileText, Plus } from "lucide-react";
+import type { Bill, BillStatus, BoardEntry, Designation, Pleader } from "@/types";
+import { BILL_STATUS_LABELS, BILL_STATUSES, DESIGNATION_LABELS } from "@/types";
+
+const STATUS_COLORS: Record<BillStatus, string> = {
+  open_for_review: "bg-yellow-100 text-yellow-800",
+  under_revision: "bg-orange-100 text-orange-800",
+  final: "bg-green-100 text-green-700",
+};
+
+export default function BillsPage() {
+  const { user, role, loading: authLoading } = useAuth();
+  const router = useRouter();
+  const admin = isAdmin(role);
+  const dataOp = isDataOperator(role);
+  const billViewer = isBillViewer(role);
+  const canAccess = admin || dataOp || billViewer;
+
+  const [bills, setBills] = useState<Bill[]>([]);
+  const [pleaders, setPleaders] = useState<Pleader[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Generate form
+  const [showGenerate, setShowGenerate] = useState(false);
+  const [genPleaderId, setGenPleaderId] = useState("");
+  const [genDateFrom, setGenDateFrom] = useState("");
+  const [genDateTo, setGenDateTo] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const [genError, setGenError] = useState<string | null>(null);
+
+  // Filter
+  const [filterStatus, setFilterStatus] = useState<BillStatus | "">("");
+  const [filterPleaderId, setFilterPleaderId] = useState("");
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!canAccess) { router.push("/dashboard"); return; }
+    loadData();
+  }, [canAccess, authLoading, router]);
+
+  async function loadData() {
+    setLoading(true);
+    setError(null);
+    try {
+      const [billsSnap, pleadersSnap] = await Promise.all([
+        getDocs(query(collection(db, "bills"), orderBy("createdAt", "desc"))),
+        getDocs(query(collection(db, "pleaders"), orderBy("name"))),
+      ]);
+      const allPleaders = pleadersSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as Pleader);
+      setPleaders(allPleaders);
+
+      let allBills = billsSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as Bill);
+
+      // Bill viewers only see their linked pleader's bills
+      if (billViewer && !admin && !dataOp) {
+        const userSnap = await getDocs(query(collection(db, "users"), where("__name__", "==", user!.uid)));
+        const myPleaderId = userSnap.docs[0]?.data().pleaderId ?? null;
+        if (myPleaderId) {
+          allBills = allBills.filter((b) => b.pleaderId === myPleaderId);
+        } else {
+          allBills = [];
+        }
+      }
+      setBills(allBills);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(`Failed to load bills: ${msg}`);
+      console.error("[bills] loadData", err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleGenerate() {
+    if (!user || !role) return;
+    if (!genPleaderId || !genDateFrom || !genDateTo) {
+      setGenError("Please fill in all fields.");
+      return;
+    }
+    if (genDateFrom > genDateTo) {
+      setGenError("'From' date must be before 'To' date.");
+      return;
+    }
+    setGenError(null);
+    setGenerating(true);
+    try {
+      // Fetch board entries for this pleader + date range
+      const snap = await getDocs(
+        query(
+          collection(db, "boardEntries"),
+          where("pleaderId", "==", genPleaderId),
+          where("date", ">=", genDateFrom),
+          where("date", "<=", genDateTo),
+          orderBy("date", "asc")
+        )
+      );
+      const entries = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as BoardEntry);
+      const pleader = pleaders.find((p) => p.id === genPleaderId)!;
+      const totalFees = entries.reduce((s, e) => s + (e.fees || 0), 0);
+
+      const billRef = await addDoc(collection(db, "bills"), {
+        dateFrom: genDateFrom,
+        dateTo: genDateTo,
+        pleaderId: genPleaderId,
+        pleaderName: pleader.name,
+        designation: pleader.designation,
+        status: "open_for_review",
+        totalFees,
+        entryCount: entries.length,
+        createdAt: Timestamp.now(),
+        createdBy: user.uid,
+        createdByName: user.displayName || user.email || "",
+        submittedAt: Timestamp.now(),
+        reviewerRemarks: "",
+        reviewerRemarksBy: "",
+        reviewerRemarksAt: null,
+        finalizedAt: null,
+        finalizedBy: null,
+        finalizedByName: null,
+      });
+
+      logAudit("bill_generated", "bill", billRef.id,
+        `Generated bill for ${pleader.name} (${genDateFrom} to ${genDateTo}), ${entries.length} entries, ₹${totalFees.toLocaleString()}`,
+        { uid: user.uid, displayName: user.displayName || user.email || "", role },
+        { pleaderId: genPleaderId, pleaderName: pleader.name, dateFrom: genDateFrom, dateTo: genDateTo, entryCount: entries.length, totalFees }
+      );
+
+      setShowGenerate(false);
+      setGenPleaderId(""); setGenDateFrom(""); setGenDateTo("");
+      await loadData();
+      router.push(`/bills/${billRef.id}`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setGenError(`Failed to generate bill: ${msg}`);
+      console.error("[bills] handleGenerate", err);
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  const filteredBills = useMemo(() => bills.filter((b) => {
+    if (filterStatus && b.status !== filterStatus) return false;
+    if (filterPleaderId && b.pleaderId !== filterPleaderId) return false;
+    return true;
+  }), [bills, filterStatus, filterPleaderId]);
+
+  if (!canAccess) return null;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">Bills</h1>
+        {(dataOp || admin) && (
+          <Button onClick={() => setShowGenerate(true)}>
+            <Plus className="h-4 w-4" /> Generate Bill
+          </Button>
+        )}
+      </div>
+
+      {/* Generate Bill Panel */}
+      {showGenerate && (
+        <Card className="border-blue-200 bg-blue-50">
+          <CardHeader><CardTitle className="text-blue-800">Generate New Bill</CardTitle></CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap items-end gap-4">
+              <div>
+                <Label>Pleader</Label>
+                <Select value={genPleaderId} onChange={(e) => setGenPleaderId(e.target.value)} className="w-56">
+                  <option value="">Select pleader...</option>
+                  {pleaders.filter((p) => p.active).map((p) => (
+                    <option key={p.id} value={p.id}>{p.name} ({DESIGNATION_LABELS[p.designation]})</option>
+                  ))}
+                </Select>
+              </div>
+              <div>
+                <Label>From Date</Label>
+                <Input type="date" value={genDateFrom} onChange={(e) => setGenDateFrom(e.target.value)} />
+              </div>
+              <div>
+                <Label>To Date</Label>
+                <Input type="date" value={genDateTo} onChange={(e) => setGenDateTo(e.target.value)} />
+              </div>
+              <Button onClick={handleGenerate} disabled={generating}>
+                {generating ? "Generating..." : "Generate & Submit for Review"}
+              </Button>
+              <Button variant="outline" onClick={() => { setShowGenerate(false); setGenError(null); }}>
+                Cancel
+              </Button>
+            </div>
+            {genError && <p className="mt-3 text-sm text-red-600">{genError}</p>}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Filters */}
+      <div className="flex flex-wrap items-end gap-4">
+        <div>
+          <Label>Status</Label>
+          <Select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value as BillStatus | "")} className="w-44">
+            <option value="">All statuses</option>
+            {BILL_STATUSES.map((s) => (
+              <option key={s} value={s}>{BILL_STATUS_LABELS[s]}</option>
+            ))}
+          </Select>
+        </div>
+        {(admin || dataOp) && (
+          <div>
+            <Label>Pleader</Label>
+            <Select value={filterPleaderId} onChange={(e) => setFilterPleaderId(e.target.value)} className="w-48">
+              <option value="">All pleaders</option>
+              {pleaders.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </Select>
+          </div>
+        )}
+      </div>
+
+      {/* Bills Table */}
+      {error && <p className="text-sm text-red-600">{error}</p>}
+      <Card>
+        <CardContent className="p-0">
+          {loading ? (
+            <p className="p-6 text-sm text-gray-400">Loading...</p>
+          ) : filteredBills.length === 0 ? (
+            <p className="p-6 text-sm text-gray-400">No bills found.</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-gray-50 text-left text-gray-500">
+                  <th className="px-4 py-3 font-medium">Pleader</th>
+                  <th className="px-4 py-3 font-medium">Period</th>
+                  <th className="px-4 py-3 font-medium">Entries</th>
+                  <th className="px-4 py-3 font-medium">Total Fees</th>
+                  <th className="px-4 py-3 font-medium">Status</th>
+                  <th className="px-4 py-3 font-medium">Generated By</th>
+                  <th className="px-4 py-3 font-medium">Date</th>
+                  <th className="px-4 py-3 font-medium"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredBills.map((b) => (
+                  <tr key={b.id} className="border-b last:border-0 hover:bg-gray-50">
+                    <td className="px-4 py-3 font-medium">{b.pleaderName}</td>
+                    <td className="px-4 py-3 text-gray-600">{b.dateFrom} → {b.dateTo}</td>
+                    <td className="px-4 py-3">{b.entryCount}</td>
+                    <td className="px-4 py-3 font-semibold">₹{b.totalFees.toLocaleString()}</td>
+                    <td className="px-4 py-3">
+                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_COLORS[b.status]}`}>
+                        {BILL_STATUS_LABELS[b.status]}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-gray-500">{b.createdByName}</td>
+                    <td className="px-4 py-3 text-gray-500">
+                      {b.createdAt?.toDate?.().toLocaleDateString("en-IN") ?? "—"}
+                    </td>
+                    <td className="px-4 py-3">
+                      <Link href={`/bills/${b.id}`} className="text-blue-600 hover:underline text-xs font-medium">
+                        <FileText className="inline h-3 w-3 mr-1" />View
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

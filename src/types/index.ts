@@ -14,6 +14,7 @@ export interface AppUser {
   displayName: string;
   role: UserRole;
   active: boolean;
+  pleaderId: string | null; // bill_viewer linked to this Pleader's bills
   createdAt: Timestamp;
   createdBy: string;
   lastLoginAt: Timestamp;
@@ -57,6 +58,60 @@ export interface FeeConfig {
   disposed: number;
   updatedAt: Timestamp;
   updatedBy: string;
+}
+
+export type BillStatus = "open_for_review" | "under_revision" | "final";
+
+export const BILL_STATUS_LABELS: Record<BillStatus, string> = {
+  open_for_review: "Open for Review",
+  under_revision: "Under Revision",
+  final: "Final",
+};
+
+export const BILL_STATUSES: BillStatus[] = ["open_for_review", "under_revision", "final"];
+
+export interface Bill {
+  id: string;
+  dateFrom: string;           // YYYY-MM-DD
+  dateTo: string;             // YYYY-MM-DD
+  pleaderId: string;
+  pleaderName: string;
+  designation: Designation;
+  status: BillStatus;
+  totalFees: number;
+  entryCount: number;
+  createdAt: Timestamp;
+  createdBy: string;          // uid
+  createdByName: string;
+  submittedAt: Timestamp | null;
+  reviewerRemarks: string;
+  reviewerRemarksBy: string;  // bill viewer display name
+  reviewerRemarksAt: Timestamp | null;
+  finalizedAt: Timestamp | null;
+  finalizedBy: string | null; // uid
+  finalizedByName: string | null;
+}
+
+export type AuditAction =
+  | "board_entry_created"
+  | "board_entry_updated"
+  | "board_entry_deleted"
+  | "bill_generated"
+  | "bill_submitted"
+  | "bill_remarks_added"
+  | "bill_finalized";
+
+export interface AuditLog {
+  id: string;
+  action: AuditAction;
+  entityType: "boardEntry" | "bill";
+  entityId: string;
+  description: string;
+  performedBy: string;        // uid
+  performedByName: string;
+  performedByRole: UserRole;
+  timestamp: Timestamp;
+  metadata: Record<string, string | number | boolean | null>;
 }
 
 export interface BoardEntry {

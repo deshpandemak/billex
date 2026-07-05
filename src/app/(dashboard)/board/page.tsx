@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/context";
 import { isDataOperator } from "@/lib/auth/roles";
 import { computeFees } from "@/lib/billing/fees";
+import { logAudit } from "@/lib/audit";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -198,6 +199,13 @@ export default function BoardPage() {
       if (!confirm("Delete this row?")) return;
       try {
         await deleteDoc(doc(db, "boardEntries", row.id));
+        if (user && role) {
+          logAudit("board_entry_deleted", "boardEntry", row.id,
+            `Deleted entry ${row.caseType}/${row.caseNo}/${row.year} (${row.date})`,
+            { uid: user.uid, displayName: user.displayName || user.email || "", role },
+            { date: row.date, caseType: row.caseType, caseNo: row.caseNo }
+          );
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         setError(`Failed to delete row: ${msg}`);
@@ -209,9 +217,10 @@ export default function BoardPage() {
   }
 
   async function handleSaveAll() {
-    if (!user) return;
+    if (!user || !role) return;
     setError(null);
     setSaving(true);
+    const actor = { uid: user.uid, displayName: user.displayName || user.email || "", role };
     try {
       const now = Timestamp.now();
       const updated = await Promise.all(
@@ -234,13 +243,19 @@ export default function BoardPage() {
           };
           if (row.persisted) {
             await updateDoc(doc(db, "boardEntries", row.id), payload);
+            logAudit("board_entry_updated", "boardEntry", row.id,
+              `Updated entry ${row.caseType}/${row.caseNo}/${row.year} (${row.date})`,
+              actor, { date: row.date, fees: row.fees, pleaderName: pleader?.name || "" }
+            );
             return row;
           }
           const ref = await addDoc(collection(db, "boardEntries"), {
-            ...payload,
-            createdAt: now,
-            createdBy: user.uid,
+            ...payload, createdAt: now, createdBy: user.uid,
           });
+          logAudit("board_entry_created", "boardEntry", ref.id,
+            `Created entry ${row.caseType}/${row.caseNo}/${row.year} (${row.date})`,
+            actor, { date: row.date, fees: row.fees, pleaderName: pleader?.name || "" }
+          );
           return { ...row, id: ref.id, persisted: true };
         })
       );

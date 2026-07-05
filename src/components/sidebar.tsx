@@ -13,9 +13,11 @@ import {
   LayoutDashboard,
   ClipboardList,
   Receipt,
+  FileText,
   Scale,
   Percent,
   Users,
+  ScrollText,
   LogOut,
 } from "lucide-react";
 
@@ -23,12 +25,15 @@ const baseItems = [{ href: "/dashboard", label: "Dashboard", icon: LayoutDashboa
 
 const dataOperatorItems = [{ href: "/board", label: "Board Data", icon: ClipboardList }];
 
-const billViewerItems = [{ href: "/billing", label: "Billing", icon: Receipt }];
+const billsItems = [{ href: "/bills", label: "Bills", icon: FileText }];
+
+const billViewerItems = [{ href: "/billing", label: "Billing Report", icon: Receipt }];
 
 const adminItems = [
   { href: "/admin/pleaders", label: "Pleaders", icon: Scale },
   { href: "/admin/fees", label: "Fee Config", icon: Percent },
   { href: "/admin/users", label: "Logins & Roles", icon: Users },
+  { href: "/admin/audit", label: "Audit Logs", icon: ScrollText },
 ];
 
 export function Sidebar() {
@@ -45,6 +50,7 @@ export function Sidebar() {
   const items = [
     ...baseItems,
     ...(isDataOperator(role) ? dataOperatorItems : []),
+    ...(isDataOperator(role) || isBillViewer(role) || admin ? billsItems : []),
     ...(isBillViewer(role) || admin ? billViewerItems : []),
     ...(admin ? adminItems : []),
   ];
