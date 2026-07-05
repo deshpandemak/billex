@@ -16,8 +16,8 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { FileText, Plus } from "lucide-react";
-import type { Bill, BillStatus, BoardEntry, Designation, Pleader } from "@/types";
-import { BILL_STATUS_LABELS, BILL_STATUSES, DESIGNATION_LABELS } from "@/types";
+import type { Bill, BillStatus, BoardEntry, Pleader } from "@/types";
+import { BILL_STATUS_LABELS, BILL_STATUSES } from "@/types";
 
 const STATUS_COLORS: Record<BillStatus, string> = {
   open_for_review: "bg-yellow-100 text-yellow-800",
@@ -40,13 +40,13 @@ export default function BillsPage() {
 
   // Generate form
   const [showGenerate, setShowGenerate] = useState(false);
-  const [genPleaderId, setGenPleaderId] = useState("");
   const [genDateFrom, setGenDateFrom] = useState("");
   const [genDateTo, setGenDateTo] = useState("");
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
+  const [genResult, setGenResult] = useState<string | null>(null);
 
-  // Filter
+  // Filters
   const [filterStatus, setFilterStatus] = useState<BillStatus | "">("");
   const [filterPleaderId, setFilterPleaderId] = useState("");
 
@@ -73,11 +73,7 @@ export default function BillsPage() {
       if (billViewer && !admin && !dataOp) {
         const userSnap = await getDocs(query(collection(db, "users"), where("__name__", "==", user!.uid)));
         const myPleaderId = userSnap.docs[0]?.data().pleaderId ?? null;
-        if (myPleaderId) {
-          allBills = allBills.filter((b) => b.pleaderId === myPleaderId);
-        } else {
-          allBills = [];
-        }
+        allBills = myPleaderId ? allBills.filter((b) => b.pleaderId === myPleaderId) : [];
       }
       setBills(allBills);
     } catch (err) {
@@ -91,8 +87,8 @@ export default function BillsPage() {
 
   async function handleGenerate() {
     if (!user || !role) return;
-    if (!genPleaderId || !genDateFrom || !genDateTo) {
-      setGenError("Please fill in all fields.");
+    if (!genDateFrom || !genDateTo) {
+      setGenError("Please select both dates.");
       return;
     }
     if (genDateFrom > genDateTo) {
@@ -100,56 +96,81 @@ export default function BillsPage() {
       return;
     }
     setGenError(null);
+    setGenResult(null);
     setGenerating(true);
     try {
-      // Fetch board entries for this pleader + date range
+      // Fetch ALL board entries for the date range
       const snap = await getDocs(
         query(
           collection(db, "boardEntries"),
-          where("pleaderId", "==", genPleaderId),
           where("date", ">=", genDateFrom),
           where("date", "<=", genDateTo),
           orderBy("date", "asc")
         )
       );
-      const entries = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as BoardEntry);
-      const pleader = pleaders.find((p) => p.id === genPleaderId)!;
-      const totalFees = entries.reduce((s, e) => s + (e.fees || 0), 0);
+      const allEntries = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as BoardEntry);
 
-      const billRef = await addDoc(collection(db, "bills"), {
-        dateFrom: genDateFrom,
-        dateTo: genDateTo,
-        pleaderId: genPleaderId,
-        pleaderName: pleader.name,
-        designation: pleader.designation,
-        status: "open_for_review",
-        totalFees,
-        entryCount: entries.length,
-        createdAt: Timestamp.now(),
-        createdBy: user.uid,
-        createdByName: user.displayName || user.email || "",
-        submittedAt: Timestamp.now(),
-        reviewerRemarks: "",
-        reviewerRemarksBy: "",
-        reviewerRemarksAt: null,
-        finalizedAt: null,
-        finalizedBy: null,
-        finalizedByName: null,
-      });
+      // Group by pleaderId — one bill per pleader
+      const grouped = new Map<string, BoardEntry[]>();
+      for (const entry of allEntries) {
+        if (!entry.pleaderId) continue;
+        if (!grouped.has(entry.pleaderId)) grouped.set(entry.pleaderId, []);
+        grouped.get(entry.pleaderId)!.push(entry);
+      }
 
-      logAudit("bill_generated", "bill", billRef.id,
-        `Generated bill for ${pleader.name} (${genDateFrom} to ${genDateTo}), ${entries.length} entries, ₹${totalFees.toLocaleString()}`,
-        { uid: user.uid, displayName: user.displayName || user.email || "", role },
-        { pleaderId: genPleaderId, pleaderName: pleader.name, dateFrom: genDateFrom, dateTo: genDateTo, entryCount: entries.length, totalFees }
+      if (grouped.size === 0) {
+        setGenError("No board entries with an assigned pleader found for this date range.");
+        return;
+      }
+
+      const actor = { uid: user.uid, displayName: user.displayName || user.email || "", role };
+      const now = Timestamp.now();
+      const createdNames: string[] = [];
+
+      await Promise.all(
+        Array.from(grouped.entries()).map(async ([pid, entries]) => {
+          const pleader = pleaders.find((p) => p.id === pid);
+          if (!pleader) return; // unknown pleader ID — skip
+          const totalFees = entries.reduce((s, e) => s + (e.fees || 0), 0);
+
+          const billRef = await addDoc(collection(db, "bills"), {
+            dateFrom: genDateFrom,
+            dateTo: genDateTo,
+            pleaderId: pid,           // internal Firestore ID
+            pleaderName: pleader.name, // display name from pleader record
+            designation: pleader.designation,
+            status: "open_for_review",
+            totalFees,
+            entryCount: entries.length,
+            createdAt: now,
+            createdBy: user.uid,
+            createdByName: user.displayName || user.email || "",
+            submittedAt: now,
+            reviewerRemarks: "",
+            reviewerRemarksBy: "",
+            reviewerRemarksAt: null,
+            finalizedAt: null,
+            finalizedBy: null,
+            finalizedByName: null,
+          });
+
+          logAudit(
+            "bill_generated", "bill", billRef.id,
+            `Generated bill for ${pleader.name} (${genDateFrom} to ${genDateTo}), ${entries.length} entries, ₹${totalFees.toLocaleString()}`,
+            actor,
+            { pleaderId: pid, pleaderName: pleader.name, dateFrom: genDateFrom, dateTo: genDateTo, entryCount: entries.length, totalFees }
+          );
+          createdNames.push(pleader.name);
+        })
       );
 
-      setShowGenerate(false);
-      setGenPleaderId(""); setGenDateFrom(""); setGenDateTo("");
+      setGenResult(`Generated ${createdNames.length} bill(s) for: ${createdNames.sort().join(", ")}`);
+      setGenDateFrom("");
+      setGenDateTo("");
       await loadData();
-      router.push(`/bills/${billRef.id}`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setGenError(`Failed to generate bill: ${msg}`);
+      setGenError(`Failed to generate bills: ${msg}`);
       console.error("[bills] handleGenerate", err);
     } finally {
       setGenerating(false);
@@ -168,28 +189,24 @@ export default function BillsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Bills</h1>
-        {(dataOp || admin) && (
-          <Button onClick={() => setShowGenerate(true)}>
-            <Plus className="h-4 w-4" /> Generate Bill
+        {(dataOp || admin) && !showGenerate && (
+          <Button onClick={() => { setShowGenerate(true); setGenResult(null); setGenError(null); }}>
+            <Plus className="h-4 w-4" /> Generate Bills
           </Button>
         )}
       </div>
 
-      {/* Generate Bill Panel */}
+      {/* Generate Bills Panel */}
       {showGenerate && (
         <Card className="border-blue-200 bg-blue-50">
-          <CardHeader><CardTitle className="text-blue-800">Generate New Bill</CardTitle></CardHeader>
-          <CardContent>
+          <CardHeader>
+            <CardTitle className="text-blue-800">Generate Bills for Period</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-blue-700">
+              One bill will be generated per pleader based on their board entries in the selected date range.
+            </p>
             <div className="flex flex-wrap items-end gap-4">
-              <div>
-                <Label>Pleader</Label>
-                <Select value={genPleaderId} onChange={(e) => setGenPleaderId(e.target.value)} className="w-56">
-                  <option value="">Select pleader...</option>
-                  {pleaders.filter((p) => p.active).map((p) => (
-                    <option key={p.id} value={p.id}>{p.name} ({DESIGNATION_LABELS[p.designation]})</option>
-                  ))}
-                </Select>
-              </div>
               <div>
                 <Label>From Date</Label>
                 <Input type="date" value={genDateFrom} onChange={(e) => setGenDateFrom(e.target.value)} />
@@ -201,11 +218,14 @@ export default function BillsPage() {
               <Button onClick={handleGenerate} disabled={generating}>
                 {generating ? "Generating..." : "Generate & Submit for Review"}
               </Button>
-              <Button variant="outline" onClick={() => { setShowGenerate(false); setGenError(null); }}>
+              <Button variant="outline" onClick={() => { setShowGenerate(false); setGenError(null); setGenResult(null); }}>
                 Cancel
               </Button>
             </div>
-            {genError && <p className="mt-3 text-sm text-red-600">{genError}</p>}
+            {genError && <p className="text-sm text-red-600">{genError}</p>}
+            {genResult && (
+              <p className="text-sm font-medium text-green-700">{genResult}</p>
+            )}
           </CardContent>
         </Card>
       )}
