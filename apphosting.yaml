@@ -41,14 +41,8 @@ env:
     value: billex-556a4
     availability:
       - RUNTIME
-
-  # Secrets: set these with `firebase apphosting:secrets:set <NAME>` (see
-  # deployment steps) — do not put real values here, this file is committed.
-  - variable: FIREBASE_ADMIN_CLIENT_EMAIL
-    secret: FIREBASE_ADMIN_CLIENT_EMAIL
-    availability:
-      - RUNTIME
-  - variable: FIREBASE_ADMIN_PRIVATE_KEY
-    secret: FIREBASE_ADMIN_PRIVATE_KEY
-    availability:
-      - RUNTIME
+  # No service account secrets needed in production.
+  # Firebase App Hosting (Cloud Run) automatically attaches the
+  # firebase-app-hosting-compute service account, which has Firebase Admin
+  # access. The Admin SDK picks it up via Application Default Credentials.
+  # Explicit credentials are only needed in .env.local for local dev.
