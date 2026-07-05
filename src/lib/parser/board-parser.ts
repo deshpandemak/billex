@@ -23,6 +23,12 @@ const CASE_NUMBER_REGEX = /^(\d+)\s+([A-Z]{2,8}(?:\([A-Z]+\))?)\/([\d]+)\/([\d]{
 // Match case references in continuation lines (same flexible case-type pattern)
 const CASE_REF_REGEX = /([A-Z]{2,8}(?:\([A-Z]+\))?)\/([\d]+)\/([\d]{4})/g;
 
+// Standalone serial number line (e.g. when unpdf splits columns into separate lines)
+const STANDALONE_SR_REGEX = /^(\d{1,4})\s*$/;
+
+// Case type/number/year at start of line — used when Sr.No was on the previous line
+const CASE_ONLY_REGEX = /^([A-Z]{2,8}(?:\([A-Z]+\))?)\/([\d]+)\/([\d]{4})/;
+
 // Match various Bombay HC board header formats that include the date:
 //   Page: 1    APPELLATE SIDE - DAILY MAIN              08/05/2026
 //   APPELLATE SIDE - DAILY SUPPLEMENTARY 19/12/2025
@@ -187,7 +193,21 @@ export function parseBoardPdf(text: string, sourceFile: string): ParsedBoardEntr
     }
 
     // ── Case entry ───────────────────────────────────────────────────────────
-    const caseMatch = line.match(CASE_NUMBER_REGEX);
+    // Handle split-line format: Sr.No alone on one line, case data on the next.
+    // This occurs when unpdf extracts a 4-column PDF column-by-column.
+    let effectiveLine = line;
+    let effectiveLineOffset = 0; // extra lines consumed by look-ahead
+    const srOnlyMatch = line.match(STANDALONE_SR_REGEX);
+    if (srOnlyMatch && currentDate) {
+      let k = i + 1;
+      while (k < lines.length && !lines[k].trim()) k++;
+      if (k < lines.length && lines[k].trim().match(CASE_ONLY_REGEX)) {
+        effectiveLine = `${srOnlyMatch[1]} ${lines[k].trim()}`;
+        effectiveLineOffset = k - i; // we'll advance past the case-data line too
+      }
+    }
+
+    const caseMatch = effectiveLine.match(CASE_NUMBER_REGEX);
     if (caseMatch && currentDate) {
       const srNo = parseInt(caseMatch[1], 10);
       const caseType = caseMatch[2];
@@ -195,20 +215,22 @@ export function parseBoardPdf(text: string, sourceFile: string): ParsedBoardEntr
       const caseYear = caseMatch[4];
       const fullCaseNumber = `${caseType}/${caseNo}/${caseYear}`;
 
-      const afterCase = line.substring(line.indexOf(fullCaseNumber) + fullCaseNumber.length).trim();
+      const afterCase = effectiveLine.substring(effectiveLine.indexOf(fullCaseNumber) + fullCaseNumber.length).trim();
       const { partyName, resAdvocateText } = splitAdvocates(afterCase);
 
       const linkedCases: string[] = [];
       let extraRes = resAdvocateText;
 
       // Process continuation lines (WITH / IN and standalone advocate lines)
-      let j = i + 1;
+      // Start after the last line consumed (handles split Sr.No / case-data lines)
+      let j = i + effectiveLineOffset + 1;
       while (j < lines.length) {
         const nextLine = lines[j].trim();
         if (!nextLine) { j++; continue; }
 
         // Stop on lines that begin a new section, entry, or page
         if (nextLine.match(CASE_NUMBER_REGEX)) break;
+        if (nextLine.match(STANDALONE_SR_REGEX)) break;
         if (nextLine.match(SECTION_HEADER_REGEX)) break;
         if (nextLine.match(COURT_REGEX)) break;
         if (nextLine.match(DATE_REGEX)) break;

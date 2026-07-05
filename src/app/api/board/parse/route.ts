@@ -46,8 +46,10 @@ export async function POST(request: NextRequest) {
 
       console.log(`[board/parse] ${file.name}: parsed ${entries.length} entries`);
       if (entries.length === 0) {
-        const preview = text.split("\n").slice(0, 30).map((l, i) => `  ${i + 1}: ${l}`).join("\n");
-        console.log(`[board/parse] ${file.name}: first 30 lines of extracted text:\n${preview}`);
+        const allLines = text.split("\n");
+        // Log first 100 lines with char-count so we can spot column-reordering
+        const preview = allLines.slice(0, 100).map((l, i) => `  ${String(i + 1).padStart(3)}: [${l.length}] ${l}`).join("\n");
+        console.log(`[board/parse] ${file.name}: total lines=${allLines.length}, first 100:\n${preview}`);
       }
 
       allEntries.push(

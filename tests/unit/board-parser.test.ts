@@ -674,6 +674,45 @@ C.R.  No: 46                  , ,  Bench ID: 5916
 });
 
 // ──────────────────────────────────────────────────────────────────────────────
+// Split-line format (unpdf column-extraction mode)
+// ──────────────────────────────────────────────────────────────────────────────
+
+describe("parseBoardPdf — split-line format (Sr.No on its own line)", () => {
+  // When unpdf extracts a 4-column PDF it sometimes puts the serial number on
+  // its own line and the rest of the case data (case-type/no/year + advocates)
+  // on the following line. The parser must stitch these together.
+  const SPLIT_LINE_TEXT = `${DAILY_MAIN_MAY}
+* FOR DISPOSAL *
+----------------
+3
+PIL/168/2022 LAW GLOBAL ADVOCATES SMT.NEHA.S.BHIDE,GP
+15
+WP/5761/2026 Advocate Hitesh Dabhi SMT.NEHA S. BHIDE , GP. N/S`;
+
+  it("parses entries when Sr.No is on a separate line from the case number", () => {
+    const entries = parseBoardPdf(SPLIT_LINE_TEXT, "BOARD 05.05.2026 copy.pdf");
+    expect(entries).toHaveLength(2);
+  });
+
+  it("assigns correct serial numbers from split-line format", () => {
+    const entries = parseBoardPdf(SPLIT_LINE_TEXT, "BOARD 05.05.2026 copy.pdf");
+    expect(entries[0].srNo).toBe(3);
+    expect(entries[1].srNo).toBe(15);
+  });
+
+  it("extracts case number correctly in split-line format", () => {
+    const entries = parseBoardPdf(SPLIT_LINE_TEXT, "BOARD 05.05.2026 copy.pdf");
+    expect(entries[0].fullCaseNumber).toBe("PIL/168/2022");
+    expect(entries[1].fullCaseNumber).toBe("WP/5761/2026");
+  });
+
+  it("extracts board date in split-line format", () => {
+    const entries = parseBoardPdf(SPLIT_LINE_TEXT, "BOARD 05.05.2026 copy.pdf");
+    expect(entries[0].boardDate).toBe("2026-05-05");
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
 // Edge cases
 // ──────────────────────────────────────────────────────────────────────────────
 
