@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   addDoc, collection, deleteDoc, doc, getDocs, orderBy, query, Timestamp, updateDoc, where,
 } from "firebase/firestore";
-import { auth, db } from "@/lib/firebase/client";
+import { db } from "@/lib/firebase/client";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/context";
 import { isDataOperator } from "@/lib/auth/roles";
@@ -164,7 +164,7 @@ export default function BoardPage() {
       for (const file of Array.from(files)) {
         formData.append("files", file);
       }
-      const token = await auth.currentUser?.getIdToken();
+      const token = await user?.getIdToken();
       const res = await fetch("/api/board/parse", {
         method: "POST",
         body: formData,
