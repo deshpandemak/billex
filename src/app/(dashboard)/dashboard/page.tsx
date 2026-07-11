@@ -27,8 +27,8 @@ export default function DashboardPage() {
     async function load() {
       const entriesQuery = query(
         collection(db, "boardEntries"),
-        where("date", ">=", monthStart()),
-        orderBy("date", "desc")
+        where("dateISO", ">=", monthStart()),
+        orderBy("dateISO", "desc")
       );
       const entriesSnap = await getDocs(entriesQuery);
       const entries = entriesSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as BoardEntry);

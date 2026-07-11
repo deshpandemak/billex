@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase/client";
+import { isoToDisplay } from "@/lib/date";
 import { useAuth } from "@/lib/auth/context";
 import { isAdmin, isBillViewer } from "@/lib/auth/roles";
 import { Button } from "@/components/ui/button";
@@ -39,13 +40,13 @@ export default function BillingPage() {
     try {
       const ref = collection(db, "boardEntries");
       const constraints = [];
-      if (dateFrom) constraints.push(where("date", ">=", dateFrom));
-      if (dateTo) constraints.push(where("date", "<=", dateTo));
+      if (dateFrom) constraints.push(where("dateISO", ">=", dateFrom));
+      if (dateTo) constraints.push(where("dateISO", "<=", dateTo));
 
       const snap = await getDocs(query(ref, ...constraints));
       let entries = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as BoardEntry);
       if (designation) entries = entries.filter((e) => e.designation === designation);
-      entries.sort((a, b) => a.date.localeCompare(b.date));
+      entries.sort((a, b) => a.dateISO.localeCompare(b.dateISO));
 
       setRows(entries);
       setSearched(true);
@@ -80,7 +81,7 @@ export default function BillingPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `billex-billing-${new Date().toISOString().split("T")[0]}.csv`;
+    a.download = `billex-billing-${isoToDisplay(new Date().toISOString().split("T")[0])}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }

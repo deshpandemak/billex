@@ -7,6 +7,7 @@ import {
   addDoc, collection, doc, getDoc, getDocs, orderBy, query, Timestamp, where,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase/client";
+import { formatTimestampDate, isoToDisplay } from "@/lib/date";
 import { useAuth } from "@/lib/auth/context";
 import { isAdmin, isBillViewer, isDataOperator } from "@/lib/auth/roles";
 import { logAudit } from "@/lib/audit";
@@ -107,9 +108,9 @@ export default function BillsPage() {
       const snap = await getDocs(
         query(
           collection(db, "boardEntries"),
-          where("date", ">=", genDateFrom),
-          where("date", "<=", genDateTo),
-          orderBy("date", "asc")
+          where("dateISO", ">=", genDateFrom),
+          where("dateISO", "<=", genDateTo),
+          orderBy("dateISO", "asc")
         )
       );
       const allEntries = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as BoardEntry);
@@ -138,8 +139,10 @@ export default function BillsPage() {
           const totalFees = entries.reduce((s, e) => s + (e.fees || 0), 0);
 
           const billRef = await addDoc(collection(db, "bills"), {
-            dateFrom: genDateFrom,
-            dateTo: genDateTo,
+            dateFrom: isoToDisplay(genDateFrom),
+            dateTo: isoToDisplay(genDateTo),
+            dateFromISO: genDateFrom,
+            dateToISO: genDateTo,
             pleaderId: pid,           // internal Firestore ID
             pleaderName: pleader.name, // display name from pleader record
             designation: pleader.designation,
@@ -160,9 +163,9 @@ export default function BillsPage() {
 
           logAudit(
             "bill_generated", "bill", billRef.id,
-            `Generated bill for ${pleader.name} (${genDateFrom} to ${genDateTo}), ${entries.length} entries, ₹${totalFees.toLocaleString()}`,
+            `Generated bill for ${pleader.name} (${isoToDisplay(genDateFrom)} to ${isoToDisplay(genDateTo)}), ${entries.length} entries, ₹${totalFees.toLocaleString()}`,
             actor,
-            { pleaderId: pid, pleaderName: pleader.name, dateFrom: genDateFrom, dateTo: genDateTo, entryCount: entries.length, totalFees }
+            { pleaderId: pid, pleaderName: pleader.name, dateFrom: isoToDisplay(genDateFrom), dateTo: isoToDisplay(genDateTo), entryCount: entries.length, totalFees }
           );
           createdNames.push(pleader.name);
         })
@@ -294,7 +297,7 @@ export default function BillsPage() {
                     </td>
                     <td className="px-4 py-3 text-gray-500">{b.createdByName}</td>
                     <td className="px-4 py-3 text-gray-500">
-                      {b.createdAt?.toDate?.().toLocaleDateString("en-IN") ?? "—"}
+                      {formatTimestampDate(b.createdAt)}
                     </td>
                     <td className="px-4 py-3">
                       <Link href={`/bills/${b.id}`} className="text-blue-600 hover:underline text-xs font-medium">

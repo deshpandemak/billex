@@ -4,6 +4,7 @@ import { useMemo, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { collection, getDocs, limit, orderBy, query, Timestamp, where } from "firebase/firestore";
 import { db } from "@/lib/firebase/client";
+import { formatTimestampDateTime, isoToDisplay } from "@/lib/date";
 import { useAuth } from "@/lib/auth/context";
 import { isAdmin } from "@/lib/auth/roles";
 import { Input } from "@/components/ui/input";
@@ -148,9 +149,9 @@ export default function AuditPage() {
 
   const dateLabel =
     filterDateFrom === filterDateTo && filterDateFrom
-      ? filterDateFrom === todayISO() ? "Today" : filterDateFrom
+      ? filterDateFrom === todayISO() ? "Today" : isoToDisplay(filterDateFrom)
       : filterDateFrom && filterDateTo
-      ? `${filterDateFrom} → ${filterDateTo}`
+      ? `${isoToDisplay(filterDateFrom)} → ${isoToDisplay(filterDateTo)}`
       : "All dates";
 
   return (
@@ -314,7 +315,7 @@ export default function AuditPage() {
                   {filteredLogs.map((log) => (
                     <tr key={log.id} className="border-b last:border-0">
                       <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
-                        {log.timestamp?.toDate?.().toLocaleString("en-IN") ?? "—"}
+                        {formatTimestampDateTime(log.timestamp)}
                       </td>
                       <td className="px-4 py-3">
                         <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${ACTION_COLORS[log.action] ?? "bg-gray-100 text-gray-600"}`}>

@@ -7,6 +7,7 @@ import {
   collection, doc, getDoc, getDocs, orderBy, query, Timestamp, updateDoc, where,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase/client";
+import { formatTimestampDateTime } from "@/lib/date";
 import { useAuth } from "@/lib/auth/context";
 import { isAdmin, isBillViewer, isDataOperator } from "@/lib/auth/roles";
 import { logAudit } from "@/lib/audit";
@@ -70,9 +71,9 @@ export default function BillDetailPage() {
         query(
           collection(db, "boardEntries"),
           where("pleaderId", "==", billData.pleaderId),
-          where("date", ">=", billData.dateFrom),
-          where("date", "<=", billData.dateTo),
-          orderBy("date", "asc")
+          where("dateISO", ">=", billData.dateFromISO),
+          where("dateISO", "<=", billData.dateToISO),
+          orderBy("dateISO", "asc")
         )
       );
       setEntries(entriesSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as BoardEntry));
@@ -189,7 +190,7 @@ export default function BillDetailPage() {
               <CardContent>
                 <p className="text-sm text-orange-900 whitespace-pre-wrap">{bill.reviewerRemarks}</p>
                 <p className="mt-2 text-xs text-orange-600">
-                  — {bill.reviewerRemarksBy}, {bill.reviewerRemarksAt?.toDate?.().toLocaleString("en-IN") ?? ""}
+                  — {bill.reviewerRemarksBy}, {bill.reviewerRemarksAt ? formatTimestampDateTime(bill.reviewerRemarksAt) : ""}
                 </p>
               </CardContent>
             </Card>
