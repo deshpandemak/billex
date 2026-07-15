@@ -23,6 +23,7 @@ export default function AdminUsersPage() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [createRole, setCreateRole] = useState<UserRole>("data_operator");
 
   useEffect(() => {
     if (authLoading) return;
@@ -60,14 +61,21 @@ export default function AdminUsersPage() {
   async function handleCreate(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
-    setCreating(true);
     const formEl = e.currentTarget;
     const form = new FormData(formEl);
+    const role = form.get("role") as UserRole;
+    const pleaderId = form.get("pleaderId") as string;
+    if (role === "bill_viewer" && !pleaderId) {
+      setError("Please select the Pleader this Bill Viewer login belongs to.");
+      return;
+    }
+    setCreating(true);
     const body = {
       email: form.get("email"),
       displayName: form.get("displayName"),
       password: form.get("password"),
-      role: form.get("role"),
+      role,
+      pleaderId: role === "bill_viewer" ? pleaderId : null,
     };
     const res = await authedFetch("/api/admin/users", { method: "POST", body: JSON.stringify(body) });
     if (!res.ok) {
@@ -75,6 +83,7 @@ export default function AdminUsersPage() {
       setError(data.error || "Failed to create login.");
     } else {
       formEl.reset();
+      setCreateRole("data_operator");
       await loadAll();
     }
     setCreating(false);
@@ -151,12 +160,28 @@ export default function AdminUsersPage() {
             <div><Label>Temporary Password</Label><Input name="password" type="password" minLength={6} required /></div>
             <div>
               <Label>Role</Label>
-              <Select name="role" defaultValue="data_operator" required>
+              <Select
+                name="role"
+                value={createRole}
+                onChange={(e) => setCreateRole(e.target.value as UserRole)}
+                required
+              >
                 {(Object.keys(ROLE_LABELS) as UserRole[]).map((r) => (
                   <option key={r} value={r}>{ROLE_LABELS[r]}</option>
                 ))}
               </Select>
             </div>
+            {createRole === "bill_viewer" && (
+              <div>
+                <Label>Pleader</Label>
+                <Select name="pleaderId" defaultValue="" required>
+                  <option value="" disabled>Select a pleader...</option>
+                  {pleaders.filter((p) => p.active).map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </Select>
+              </div>
+            )}
             <Button type="submit" disabled={creating}>{creating ? "Creating..." : "Create Login"}</Button>
           </form>
           {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
@@ -194,16 +219,23 @@ export default function AdminUsersPage() {
                     </td>
                     <td className="px-4 py-3">
                       {u.role === "bill_viewer" ? (
-                        <Select
-                          value={u.pleaderId ?? ""}
-                          onChange={(e) => linkPleader(u.uid, e.target.value)}
-                          className="h-8 w-48"
-                        >
-                          <option value="">— None —</option>
-                          {pleaders.filter((p) => p.active).map((p) => (
-                            <option key={p.id} value={p.id}>{p.name}</option>
-                          ))}
-                        </Select>
+                        <div className="space-y-1">
+                          <Select
+                            value={u.pleaderId ?? ""}
+                            onChange={(e) => linkPleader(u.uid, e.target.value)}
+                            className="h-8 w-48"
+                          >
+                            <option value="">— None —</option>
+                            {pleaders.filter((p) => p.active).map((p) => (
+                              <option key={p.id} value={p.id}>{p.name}</option>
+                            ))}
+                          </Select>
+                          {!u.pleaderId && (
+                            <p className="text-xs text-red-600">
+                              ⚠ Unlinked — this login won&apos;t see any bills or data until a pleader is selected.
+                            </p>
+                          )}
+                        </div>
                       ) : (
                         <span className="text-gray-400 text-xs">N/A</span>
                       )}

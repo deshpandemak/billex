@@ -19,9 +19,11 @@ rules_version = '2';
 //
 // Collection: boardEntries
 //   date: string (YYYY-MM-DD), caseType: string, caseNo: string,
-//   year: string, partyName: string, remarks: string, status: string,
+//   year: string, petitioner: string, respondent: string, status: string,
 //   pleaderId: string, pleaderName: string, designation: string,
-//   fees: number, createdAt: timestamp, updatedAt: timestamp,
+//   fees: number, correctionRequested: string, correctionRequestedBy: string,
+//   correctionRequestedAt: timestamp|null, billId: string|null,
+//   billLocked: bool, createdAt: timestamp, updatedAt: timestamp,
 //   createdBy: string, updatedBy: string
 //
 // Collection: bills
@@ -29,9 +31,8 @@ rules_version = '2';
 //   pleaderName: string, designation: string, status: string,
 //   totalFees: number, entryCount: number, createdAt: timestamp,
 //   createdBy: string, createdByName: string, submittedAt: timestamp|null,
-//   reviewerRemarks: string, reviewerRemarksBy: string,
-//   reviewerRemarksAt: timestamp|null, finalizedAt: timestamp|null,
-//   finalizedBy: string|null, finalizedByName: string|null
+//   finalizedAt: timestamp|null, finalizedBy: string|null,
+//   finalizedByName: string|null
 //
 // Collection: auditLogs  (append-only)
 //   action: string, entityType: string, entityId: string,
@@ -99,35 +100,40 @@ service cloud.firestore {
     }
 
     // ── boardEntries ────────────────────────────────────────────
-    // Data operators create/update/delete; admins and bill viewers read.
+    // Data operators create/update/delete any field, for any pleader, at any
+    // time (including entries already grouped into a bill).
+    // Admins read all entries. Bill viewers may only read entries for the
+    // pleader linked to their own login, and may additionally flag a
+    // correction request on those entries — only those three fields
+    // (fees, status, party names, etc. stay data-operator-only) — but only
+    // while the bill that entry belongs to hasn't been submitted/finalized
+    // yet (billLocked). Once a bill is submitted for billing, its entries
+    // freeze and bill viewers can no longer add or change corrections.
     match /boardEntries/{entryId} {
-      allow read: if isAdmin() || isDataOperator() || isBillViewer();
+      allow read: if isAdmin() || isDataOperator() ||
+        (isBillViewer() && resource.data.pleaderId == userDoc().pleaderId);
       allow create: if isDataOperator();
-      allow update: if isDataOperator();
+      allow update: if isDataOperator() ||
+        (isBillViewer() &&
+         resource.data.pleaderId == userDoc().pleaderId &&
+         resource.data.billLocked != true &&
+         request.resource.data.diff(resource.data).affectedKeys()
+           .hasOnly(['correctionRequested', 'correctionRequestedBy', 'correctionRequestedAt']));
       allow delete: if isDataOperator();
     }
 
     // ── bills ───────────────────────────────────────────────────
-    // Data operators create bills and finalize them.
-    // Bill viewers can read only bills assigned to their linked pleader,
-    // and can update only the reviewer remarks fields.
-    // Admins can read all bills.
+    // Data operators generate bills and submit them for billing (finalize).
+    // Bill viewers can only read bills assigned to their linked pleader —
+    // never anyone else's — and have no write access; their review activity
+    // (corrections) lives on the underlying boardEntries instead.
+    // Admins can read all bills and finalize/manage them like data operators.
     match /bills/{billId} {
       allow read: if isAdmin() || isDataOperator() ||
         (isBillViewer() && resource.data.pleaderId == userDoc().pleaderId);
 
       allow create: if isDataOperator() || isAdmin();
-
-      // Admin/Data operator: can update any field (status changes, finalization)
-      // Bill viewer: can only update reviewer remark fields on their own bill
-      allow update: if isDataOperator() || isAdmin() ||
-        (isBillViewer() &&
-         resource.data.pleaderId == userDoc().pleaderId &&
-         resource.data.status != 'final' &&
-         request.resource.data.diff(resource.data).affectedKeys()
-           .hasOnly(['reviewerRemarks', 'reviewerRemarksBy', 'reviewerRemarksAt', 'status']) &&
-         request.resource.data.status == 'under_revision');
-
+      allow update: if isDataOperator() || isAdmin();
       allow delete: if false; // bills are never deleted
     }
 

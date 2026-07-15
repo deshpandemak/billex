@@ -23,10 +23,10 @@ export interface AppUser {
 export type Designation = "GP" | "ADDL_GP" | "AGP" | "BPANEL";
 
 export const DESIGNATION_LABELS: Record<Designation, string> = {
-  GP: "Government Pleader",
-  ADDL_GP: "Additional Government Pleader",
-  AGP: "Assistant to Government Pleader",
-  BPANEL: "B'Panel Advocate",
+  GP: "GP",
+  ADDL_GP: "Addl GP",
+  AGP: "AGP",
+  BPANEL: "B'Pnl",
 };
 
 export const DESIGNATIONS: Designation[] = ["GP", "ADDL_GP", "AGP", "BPANEL"];
@@ -51,6 +51,23 @@ export const RESULT_STATUS_LABELS: Record<ResultStatus, string> = {
 
 export const RESULT_STATUSES: ResultStatus[] = ["ADJOURNED", "HEARD_ADJOURNED", "DISPOSED"];
 
+export type CorrectionType =
+  | "Correct to Heard & Adjourned"
+  | "Correct to Adjourned"
+  | "Correct to N"
+  | "Correct to Disposed"
+  | "Correct Case No."
+  | "Correct Party Names";
+
+export const CORRECTION_TYPES: CorrectionType[] = [
+  "Correct to Heard & Adjourned",
+  "Correct to Adjourned",
+  "Correct to N",
+  "Correct to Disposed",
+  "Correct Case No.",
+  "Correct Party Names",
+];
+
 export interface FeeConfig {
   designation: Designation;
   adjourned: number;
@@ -60,15 +77,14 @@ export interface FeeConfig {
   updatedBy: string;
 }
 
-export type BillStatus = "open_for_review" | "under_revision" | "final";
+export type BillStatus = "open_for_review" | "final";
 
 export const BILL_STATUS_LABELS: Record<BillStatus, string> = {
   open_for_review: "Open for Review",
-  under_revision: "Under Revision",
   final: "Final",
 };
 
-export const BILL_STATUSES: BillStatus[] = ["open_for_review", "under_revision", "final"];
+export const BILL_STATUSES: BillStatus[] = ["open_for_review", "final"];
 
 export interface Bill {
   id: string;
@@ -84,9 +100,6 @@ export interface Bill {
   createdBy: string;          // uid
   createdByName: string;
   submittedAt: Timestamp | null;
-  reviewerRemarks: string;
-  reviewerRemarksBy: string;  // bill viewer display name
-  reviewerRemarksAt: Timestamp | null;
   finalizedAt: Timestamp | null;
   finalizedBy: string | null; // uid
   finalizedByName: string | null;
@@ -96,9 +109,9 @@ export type AuditAction =
   | "board_entry_created"
   | "board_entry_updated"
   | "board_entry_deleted"
+  | "board_entry_correction_requested"
   | "bill_generated"
   | "bill_submitted"
-  | "bill_remarks_added"
   | "bill_finalized";
 
 export interface AuditLog {
@@ -120,13 +133,18 @@ export interface BoardEntry {
   caseType: string;
   caseNo: string;
   year: string;
-  partyName: string;
-  remarks: string;
+  petitioner: string;
+  respondent: string;
   status: ResultStatus;
   pleaderId: string;
   pleaderName: string;
   designation: Designation | "";
   fees: number;
+  correctionRequested: CorrectionType | "";
+  correctionRequestedBy: string;   // bill viewer display name
+  correctionRequestedAt: Timestamp | null;
+  billId: string | null;           // bill this entry was grouped into at generation time
+  billLocked: boolean;             // true once that bill is finalized — freezes corrections
   createdAt: Timestamp;
   updatedAt: Timestamp;
   createdBy: string;

@@ -29,15 +29,26 @@ export async function POST(request: NextRequest) {
   if (auth.error) return auth.error;
 
   const body = await request.json();
-  const { email, displayName, password, role } = body as {
+  const { email, displayName, password, role, pleaderId } = body as {
     email?: string;
     displayName?: string;
     password?: string;
     role?: UserRole;
+    pleaderId?: string | null;
   };
 
   if (!email || !password || !role || !VALID_ROLES.includes(role)) {
     return NextResponse.json({ error: "Missing or invalid fields" }, { status: 400 });
+  }
+
+  if (role === "bill_viewer") {
+    if (!pleaderId) {
+      return NextResponse.json({ error: "A Pleader must be selected for Bill Viewer logins" }, { status: 400 });
+    }
+    const pleaderSnap = await adminDb.collection("pleaders").doc(pleaderId).get();
+    if (!pleaderSnap.exists) {
+      return NextResponse.json({ error: "Selected pleader does not exist" }, { status: 400 });
+    }
   }
 
   try {
@@ -52,6 +63,7 @@ export async function POST(request: NextRequest) {
       displayName: displayName || email,
       role,
       active: true,
+      pleaderId: role === "bill_viewer" ? pleaderId : null,
       createdAt: new Date(),
       createdBy: auth.uid,
       lastLoginAt: null,

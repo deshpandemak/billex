@@ -6,6 +6,7 @@ import { collection, getDocs, limit, orderBy, query, Timestamp, where } from "fi
 import { db } from "@/lib/firebase/client";
 import { useAuth } from "@/lib/auth/context";
 import { isAdmin } from "@/lib/auth/roles";
+import { formatDateTime } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -18,16 +19,16 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   board_entry_created: "Entry Created",
   board_entry_updated: "Entry Updated",
   board_entry_deleted: "Entry Deleted",
+  board_entry_correction_requested: "Correction Requested",
   bill_generated: "Bill Generated",
   bill_submitted: "Bill Submitted",
-  bill_remarks_added: "Remarks Added",
-  bill_finalized: "Bill Finalized",
+  bill_finalized: "Bill Submitted for Billing",
 };
 
 const ACTION_COLORS: Partial<Record<AuditAction, string>> = {
   board_entry_deleted: "bg-red-100 text-red-700",
+  board_entry_correction_requested: "bg-orange-100 text-orange-800",
   bill_finalized: "bg-green-100 text-green-700",
-  bill_remarks_added: "bg-orange-100 text-orange-800",
   bill_generated: "bg-blue-100 text-blue-700",
 };
 
@@ -314,7 +315,7 @@ export default function AuditPage() {
                   {filteredLogs.map((log) => (
                     <tr key={log.id} className="border-b last:border-0">
                       <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
-                        {log.timestamp?.toDate?.().toLocaleString("en-IN") ?? "—"}
+                        {formatDateTime(log.timestamp)}
                       </td>
                       <td className="px-4 py-3">
                         <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${ACTION_COLORS[log.action] ?? "bg-gray-100 text-gray-600"}`}>

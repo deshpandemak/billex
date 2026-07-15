@@ -6,7 +6,7 @@ import {
   addDoc, collection, deleteDoc, doc, getDocs, orderBy, query, Timestamp, updateDoc, where,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase/client";
-import { cn } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/context";
 import { isDataOperator } from "@/lib/auth/roles";
 import { computeFees } from "@/lib/billing/fees";
@@ -27,8 +27,8 @@ interface DraftRow {
   caseType: string;
   caseNo: string;
   year: string;
-  partyName: string;
-  remarks: string;
+  petitioner: string;
+  respondent: string;
   status: ResultStatus | "";
   pleaderId: string;
   fees: number;
@@ -107,8 +107,8 @@ export default function BoardPage() {
             caseType: data.caseType,
             caseNo: data.caseNo,
             year: data.year,
-            partyName: data.partyName,
-            remarks: data.remarks,
+            petitioner: data.petitioner,
+            respondent: data.respondent,
             status: data.status,
             pleaderId: data.pleaderId,
             fees: data.fees,
@@ -146,8 +146,8 @@ export default function BoardPage() {
         caseType: "",
         caseNo: "",
         year: "",
-        partyName: "",
-        remarks: "",
+        petitioner: "",
+        respondent: "",
         status: "",
         pleaderId: "",
         fees: 0,
@@ -179,8 +179,7 @@ export default function BoardPage() {
         caseType: string;
         caseNo: string;
         caseYear: string;
-        partyName: string;
-        remarks: string;
+        petitioner: string;
         gpAdvocate: string;
       }[];
       setRows((prev) => [
@@ -192,8 +191,8 @@ export default function BoardPage() {
           caseType: p.caseType,
           caseNo: p.caseNo,
           year: p.caseYear,
-          partyName: p.partyName,
-          remarks: p.remarks,
+          petitioner: p.petitioner,
+          respondent: "",
           status: "" as ResultStatus | "",
           pleaderId: matchPleader(p.gpAdvocate, activePleaders),
           fees: 0,
@@ -243,8 +242,8 @@ export default function BoardPage() {
             caseType: row.caseType,
             caseNo: row.caseNo,
             year: row.year,
-            partyName: row.partyName,
-            remarks: row.remarks,
+            petitioner: row.petitioner,
+            respondent: row.respondent,
             status: row.status,
             pleaderId: row.pleaderId,
             pleaderName: pleader?.name || "",
@@ -337,7 +336,7 @@ export default function BoardPage() {
       <Card>
         <CardHeader>
           <CardTitle>
-            Cases for {selectedDate} {loading && "(loading...)"}
+            Cases for {formatDate(selectedDate)} {loading && "(loading...)"}
           </CardTitle>
         </CardHeader>
         <CardContent className="overflow-x-auto p-0">
@@ -353,11 +352,11 @@ export default function BoardPage() {
                   <th className="px-3 py-3 font-medium">Case Type</th>
                   <th className="px-3 py-3 font-medium">Case No.</th>
                   <th className="px-3 py-3 font-medium">Year</th>
-                  <th className="px-3 py-3 font-medium">Petitioner Advocate</th>
-                  <th className="px-3 py-3 font-medium">Remarks</th>
+                  <th className="px-3 py-3 font-medium">Petitioner</th>
+                  <th className="px-3 py-3 font-medium">Respondent</th>
+                  <th className="px-3 py-3 font-medium">GP / Addl GP / AGP / B&apos;Pnl</th>
                   <th className="px-3 py-3 font-medium">Result / Status</th>
                   <th className="px-3 py-3 font-medium">Fees (₹)</th>
-                  <th className="px-3 py-3 font-medium">GP / Addl GP / AGP / B&apos;Pnl</th>
                   <th className="px-3 py-3 font-medium">Actions</th>
                 </tr>
               </thead>
@@ -374,21 +373,24 @@ export default function BoardPage() {
                     </td>
                     <td className="px-3 py-2">
                       <Input
-                        className="w-24"
+                        className="w-[6ch]"
+                        maxLength={6}
                         value={row.caseType}
                         onChange={(e) => updateRow(row.id, { caseType: e.target.value })}
                       />
                     </td>
                     <td className="px-3 py-2">
                       <Input
-                        className="w-24"
+                        className="w-[5ch]"
+                        maxLength={5}
                         value={row.caseNo}
                         onChange={(e) => updateRow(row.id, { caseNo: e.target.value })}
                       />
                     </td>
                     <td className="px-3 py-2">
                       <Input
-                        className="w-20"
+                        className="w-[4ch]"
+                        maxLength={4}
                         value={row.year}
                         onChange={(e) => updateRow(row.id, { year: e.target.value })}
                       />
@@ -396,16 +398,30 @@ export default function BoardPage() {
                     <td className="px-3 py-2">
                       <Input
                         className="w-48"
-                        value={row.partyName}
-                        onChange={(e) => updateRow(row.id, { partyName: e.target.value })}
+                        value={row.petitioner}
+                        onChange={(e) => updateRow(row.id, { petitioner: e.target.value })}
                       />
                     </td>
                     <td className="px-3 py-2">
                       <Input
                         className="w-48"
-                        value={row.remarks}
-                        onChange={(e) => updateRow(row.id, { remarks: e.target.value })}
+                        value={row.respondent}
+                        onChange={(e) => updateRow(row.id, { respondent: e.target.value })}
                       />
+                    </td>
+                    <td className="px-3 py-2">
+                      <Select
+                        className="w-56"
+                        value={row.pleaderId}
+                        onChange={(e) => updateRow(row.id, { pleaderId: e.target.value })}
+                      >
+                        <option value="">Select...</option>
+                        {activePleaders.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name} ({DESIGNATION_LABELS[p.designation]})
+                          </option>
+                        ))}
+                      </Select>
                     </td>
                     <td className="px-3 py-2">
                       <Select
@@ -422,20 +438,6 @@ export default function BoardPage() {
                       </Select>
                     </td>
                     <td className="px-3 py-2 font-medium">₹{row.fees.toLocaleString()}</td>
-                    <td className="px-3 py-2">
-                      <Select
-                        className="w-56"
-                        value={row.pleaderId}
-                        onChange={(e) => updateRow(row.id, { pleaderId: e.target.value })}
-                      >
-                        <option value="">Select...</option>
-                        {activePleaders.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.name} ({DESIGNATION_LABELS[p.designation]})
-                          </option>
-                        ))}
-                      </Select>
-                    </td>
                     <td className="px-3 py-2">
                       <Button variant="outline" size="sm" onClick={() => handleDeleteRow(row)}>
                         <Trash2 className="h-3 w-3" />

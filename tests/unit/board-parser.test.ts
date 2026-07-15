@@ -236,7 +236,7 @@ describe("parseBoardPdf — party name extraction", () => {
 4 WP/15299/2025 Pooja A Dongre SMT. NEHA S. BHIDE GP`;
 
     const [e] = parseBoardPdf(text, "test.pdf");
-    expect(e.partyName).toBe("Pooja A Dongre");
+    expect(e.petitioner).toBe("Pooja A Dongre");
   });
 
   it("extracts uppercase petitioner advocate name", () => {
@@ -246,7 +246,7 @@ describe("parseBoardPdf — party name extraction", () => {
 18 WP/6352/2021 PRATHAMESH B BHARGUDE SMT. NEHA S. BHIDE GP`;
 
     const [e] = parseBoardPdf(text, "test.pdf");
-    expect(e.partyName).toBe("PRATHAMESH B BHARGUDE");
+    expect(e.petitioner).toBe("PRATHAMESH B BHARGUDE");
   });
 
   it("extracts petitioner from sample format: LAW GLOBAL ADVOCATES SMT.NEHA.S.BHIDE,GP", () => {
@@ -256,7 +256,7 @@ describe("parseBoardPdf — party name extraction", () => {
 3 PIL/168/2022 LAW GLOBAL ADVOCATES SMT.NEHA.S.BHIDE,GP`;
 
     const [e] = parseBoardPdf(text, "test.pdf");
-    expect(e.partyName).toBe("LAW GLOBAL ADVOCATES");
+    expect(e.petitioner).toBe("LAW GLOBAL ADVOCATES");
     expect(e.gpAdvocate).toContain("NEHA");
   });
 
@@ -267,7 +267,7 @@ describe("parseBoardPdf — party name extraction", () => {
 15 WP/5761/2026 Advocate Hitesh Dabhi SMT.NEHA S. BHIDE , GP. N/S`;
 
     const [e] = parseBoardPdf(text, "test.pdf");
-    expect(e.partyName).toBe("Advocate Hitesh Dabhi");
+    expect(e.petitioner).toBe("Advocate Hitesh Dabhi");
     expect(e.gpAdvocate).toMatch(/NEHA/);
   });
 
@@ -278,7 +278,7 @@ describe("parseBoardPdf — party name extraction", () => {
 22 WP/15960/2025 Chaitanya Nikte N/S`;
 
     const [e] = parseBoardPdf(text, "test.pdf");
-    expect(e.partyName).toBe("Chaitanya Nikte N/S");
+    expect(e.petitioner).toBe("Chaitanya Nikte N/S");
     expect(e.gpAdvocate).toBe("");
   });
 
@@ -289,68 +289,8 @@ describe("parseBoardPdf — party name extraction", () => {
 401 LPA/151/2009 MR. BHAVESH PARMAR MS.KAVITA N. SOLUNKE,ADDIL.GP`;
 
     const [e] = parseBoardPdf(text, "test.pdf");
-    expect(e.partyName).toBe("MR. BHAVESH PARMAR");
+    expect(e.petitioner).toBe("MR. BHAVESH PARMAR");
     expect(e.gpAdvocate).toContain("KAVITA");
-  });
-});
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Section / remarks
-// ──────────────────────────────────────────────────────────────────────────────
-
-describe("parseBoardPdf — section/remarks extraction", () => {
-  it("captures HIGH ON BOARD section", () => {
-    const text = `${DAILY_MAIN_HEADER}
-* HIGH ON BOARD (HOB) *
------------------------
-4 WP/15299/2025 Pooja A Dongre SMT. NEHA S. BHIDE GP`;
-
-    const [e] = parseBoardPdf(text, "test.pdf");
-    expect(e.remarks).toBe("HIGH ON BOARD (HOB)");
-  });
-
-  it("captures DUE ADMISSION section", () => {
-    const text = `${DAILY_MAIN_HEADER}
-* DUE ADMISSION - 1 *
-----------------------
-17 PIL(ST)/95657/2020 NITIN PADMAKAR DESHPANDE SMT. NEHA S. BHIDE GP`;
-
-    const [e] = parseBoardPdf(text, "test.pdf");
-    expect(e.remarks).toBe("DUE ADMISSION - 1");
-  });
-
-  it("captures FRESH ADMISSION section", () => {
-    const text = `${DAILY_MAIN_HEADER}
-* FRESH ADMISSION *
--------------------
-19 WP/5206/2025 Minal Chandnani SHRI.V.G.BADGUJAR,AGP`;
-
-    const [e] = parseBoardPdf(text, "test.pdf");
-    expect(e.remarks).toBe("FRESH ADMISSION");
-  });
-
-  it("captures time-based section headers", () => {
-    const text = `${DAILY_MAIN_HEADER}
-* AT 12.30 P.M. *
------------------
-49 WP/14907/2022 Sumit S Kate SMT. NEHA S. BHIDE GP`;
-
-    const [e] = parseBoardPdf(text, "test.pdf");
-    expect(e.remarks).toBe("AT 12.30 P.M.");
-  });
-
-  it("assigns correct section when multiple sections exist", () => {
-    const text = `${DAILY_MAIN_HEADER}
-* HIGH ON BOARD (HOB) *
------------------------
-4 WP/15299/2025 Pooja A Dongre SMT. NEHA S. BHIDE GP
-* DUE ADMISSION - 1 *
-----------------------
-17 PIL(ST)/95657/2020 NITIN PADMAKAR DESHPANDE SMT. NEHA S. BHIDE GP`;
-
-    const entries = parseBoardPdf(text, "test.pdf");
-    expect(entries[0].remarks).toBe("HIGH ON BOARD (HOB)");
-    expect(entries[1].remarks).toBe("DUE ADMISSION - 1");
   });
 });
 
@@ -552,7 +492,6 @@ C.R. No: 40 , , Bench ID: 5758
     expect(entries[0].srNo).toBe(3);
     expect(entries[1].srNo).toBe(15);
     expect(entries[2].srNo).toBe(7);
-    expect(entries[2].remarks).toBe("FRESH ADMISSION");
   });
 });
 
@@ -591,12 +530,6 @@ C.R.  No: 46                  , ,  Bench ID: 5916
     expect(entries[0].benchId).toBe("5916");
   });
 
-  it("extracts section header with trailing dashes on same line", () => {
-    const entries = parseBoardPdf(REAL_FORMAT, "board.pdf");
-    // Double-space between ADMISSION and - should be collapsed to single space
-    expect(entries[0].remarks).toBe("DUE ADMISSION - 1");
-  });
-
   it("extracts serial number", () => {
     const entries = parseBoardPdf(REAL_FORMAT, "board.pdf");
     expect(entries[0].srNo).toBe(9);
@@ -612,7 +545,7 @@ C.R.  No: 46                  , ,  Bench ID: 5916
 
   it("extracts petitioner advocate name from wide-spaced column", () => {
     const entries = parseBoardPdf(REAL_FORMAT, "board.pdf");
-    expect(entries[0].partyName).toBe("Vishal Jain");
+    expect(entries[0].petitioner).toBe("Vishal Jain");
   });
 
   it("captures all three pleaders from WITH continuation lines", () => {
@@ -650,7 +583,7 @@ C.R.  No: 46                  , ,  Bench ID: 5916
 
   it("extracts petitioner advocate from CP(ST) entry", () => {
     const entries = parseBoardPdf(IN_WITH_FORMAT, "board.pdf");
-    expect(entries[0].partyName).toBe("SHAKIL AHMED");
+    expect(entries[0].petitioner).toBe("SHAKIL AHMED");
   });
 
   it("records the IN-linked related case", () => {

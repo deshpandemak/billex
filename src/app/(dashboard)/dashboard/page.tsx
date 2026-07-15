@@ -4,10 +4,11 @@ import { useEffect, useState } from "react";
 import { collection, getDocs, orderBy, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase/client";
 import { useAuth } from "@/lib/auth/context";
-import { isAdmin } from "@/lib/auth/roles";
+import { isAdmin, isBillViewer } from "@/lib/auth/roles";
 import { StatsCard } from "@/components/stats-card";
+import { formatDate } from "@/lib/utils";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { ClipboardList, Receipt, Scale, Users } from "lucide-react";
+import { ClipboardList, Scale, Users } from "lucide-react";
 import type { BoardEntry } from "@/types";
 import { DESIGNATION_LABELS, RESULT_STATUS_LABELS, ROLE_LABELS } from "@/types";
 
@@ -17,24 +18,54 @@ function monthStart() {
   return d.toISOString().split("T")[0];
 }
 
+function weekStart() {
+  const d = new Date();
+  const diff = d.getDay() === 0 ? 6 : d.getDay() - 1; // days since Monday
+  d.setDate(d.getDate() - diff);
+  return d.toISOString().split("T")[0];
+}
+
+function todayISO() {
+  return new Date().toISOString().split("T")[0];
+}
+
 export default function DashboardPage() {
-  const { role } = useAuth();
+  const { role, pleaderId, loading: authLoading } = useAuth();
   const admin = isAdmin(role);
-  const [stats, setStats] = useState({ entries: 0, disposed: 0, fees: 0, pleaders: 0, users: 0 });
+  const billViewer = isBillViewer(role);
+  const [stats, setStats] = useState({ entries: 0, entriesThisWeek: 0, entriesToday: 0, pleaders: 0, users: 0 });
   const [recent, setRecent] = useState<BoardEntry[]>([]);
 
   useEffect(() => {
+    if (authLoading) return;
+
     async function load() {
+      // Bill viewers only ever see board entries for their own linked pleader —
+      // never anyone else's data on this dashboard. With no pleader linked,
+      // they see nothing rather than falling back to the unscoped view.
+      if (billViewer && !pleaderId) {
+        setStats({ entries: 0, entriesThisWeek: 0, entriesToday: 0, pleaders: 0, users: 0 });
+        setRecent([]);
+        return;
+      }
+
+      const scope = billViewer ? [where("pleaderId", "==", pleaderId)] : [];
+
       const entriesQuery = query(
         collection(db, "boardEntries"),
+        ...scope,
         where("date", ">=", monthStart()),
         orderBy("date", "desc")
       );
-      const entriesSnap = await getDocs(entriesQuery);
-      const entries = entriesSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as BoardEntry);
+      const weekQuery = query(collection(db, "boardEntries"), ...scope, where("date", ">=", weekStart()));
+      const todayQuery = query(collection(db, "boardEntries"), ...scope, where("date", "==", todayISO()));
 
-      const disposed = entries.filter((e) => e.status === "DISPOSED").length;
-      const fees = entries.reduce((sum, e) => sum + (e.fees || 0), 0);
+      const [entriesSnap, weekSnap, todaySnap] = await Promise.all([
+        getDocs(entriesQuery),
+        getDocs(weekQuery),
+        getDocs(todayQuery),
+      ]);
+      const entries = entriesSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as BoardEntry);
 
       let pleaders = 0;
       let users = 0;
@@ -47,11 +78,11 @@ export default function DashboardPage() {
         users = usersSnap.size;
       }
 
-      setStats({ entries: entries.length, disposed, fees, pleaders, users });
+      setStats({ entries: entries.length, entriesThisWeek: weekSnap.size, entriesToday: todaySnap.size, pleaders, users });
       setRecent(entries.slice(0, 5));
     }
     load();
-  }, [admin]);
+  }, [admin, billViewer, pleaderId, authLoading]);
 
   return (
     <div className="space-y-8">
@@ -62,8 +93,8 @@ export default function DashboardPage() {
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatsCard title="Entries This Month" value={stats.entries} icon={<ClipboardList className="h-5 w-5" />} />
-        <StatsCard title="Disposed This Month" value={stats.disposed} icon={<ClipboardList className="h-5 w-5" />} />
-        <StatsCard title="Fees This Month (₹)" value={stats.fees.toLocaleString()} icon={<Receipt className="h-5 w-5" />} />
+        <StatsCard title="Entries This Week" value={stats.entriesThisWeek} icon={<ClipboardList className="h-5 w-5" />} />
+        <StatsCard title="Entries Today" value={stats.entriesToday} icon={<ClipboardList className="h-5 w-5" />} />
         {admin && (
           <>
             <StatsCard title="Pleaders" value={stats.pleaders} icon={<Scale className="h-5 w-5" />} />
@@ -93,11 +124,11 @@ export default function DashboardPage() {
               <tbody>
                 {recent.map((e) => (
                   <tr key={e.id} className="border-b last:border-0">
-                    <td className="py-2">{e.date}</td>
+                    <td className="py-2">{formatDate(e.date)}</td>
                     <td className="py-2 font-mono">
                       {e.caseType} {e.caseNo}/{e.year}
                     </td>
-                    <td className="py-2">{e.partyName}</td>
+                    <td className="py-2">{e.petitioner}</td>
                     <td className="py-2">{RESULT_STATUS_LABELS[e.status]}</td>
                     <td className="py-2">
                       {e.pleaderName}

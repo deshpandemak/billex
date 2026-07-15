@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 
 const BASE_URL = "http://localhost:3000";
 let serverReady = false;
@@ -18,8 +18,14 @@ beforeAll(async () => {
   }
 }, 15000);
 
-describe("POST /api/board/parse", () => {
-  it("returns 400 when no files provided", async () => {
+// The route checks for a valid Firebase ID token before it looks at the
+// request body at all, so every case below is unauthenticated and must
+// resolve to 401 regardless of what's in the form data. Body-validation
+// behavior (missing files, non-PDF files, malformed PDFs) requires a real
+// ID token to reach and is exercised by the unit tests for the parser
+// itself, not this HTTP-level suite.
+describe("POST /api/board/parse (unauthenticated)", () => {
+  it("returns 401 when no files provided", async () => {
     if (!serverReady) return;
 
     const res = await fetch(`${BASE_URL}/api/board/parse`, {
@@ -27,12 +33,12 @@ describe("POST /api/board/parse", () => {
       body: new FormData(),
     });
 
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(401);
     const data = await res.json();
-    expect(data.error).toBe("No files provided");
+    expect(data.error).toBe("Unauthorized");
   });
 
-  it("handles request with fake PDF gracefully", async () => {
+  it("rejects a request with a fake PDF before parsing it", async () => {
     if (!serverReady) return;
 
     const pdfContent = `%PDF-1.4 fake header`;
@@ -45,11 +51,12 @@ describe("POST /api/board/parse", () => {
       body: form,
     });
 
-    // Server should not crash — returns 200 (0 entries parsed) or 400 (file type check)
-    expect([200, 400]).toContain(res.status);
+    // The auth gate runs before file parsing, so the server never touches
+    // the (fake) PDF content — it should reject with 401, not crash.
+    expect(res.status).toBe(401);
   });
 
-  it("skips non-PDF files", async () => {
+  it("rejects a request with non-PDF files", async () => {
     if (!serverReady) return;
 
     const form = new FormData();
@@ -61,11 +68,7 @@ describe("POST /api/board/parse", () => {
       body: form,
     });
 
-    // The file gets filtered by type check, so either 400 (no valid files) or 200 with 0 entries
-    const data = await res.json();
-    if (res.status === 200) {
-      expect(data.totalParsed).toBe(0);
-    }
+    expect(res.status).toBe(401);
   });
 });
 

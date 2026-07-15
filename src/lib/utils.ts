@@ -1,6 +1,39 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import type { Timestamp } from "firebase/firestore";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
+}
+
+type DateLike = Date | Timestamp | string | null | undefined;
+
+function toDate(value: DateLike): Date | null {
+  if (!value) return null;
+  if (typeof value === "string") {
+    const d = new Date(value.includes("T") ? value : `${value}T00:00:00`);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  if (value instanceof Date) return value;
+  if (typeof value.toDate === "function") return value.toDate();
+  return null;
+}
+
+function pad(n: number) {
+  return String(n).padStart(2, "0");
+}
+
+/** Formats a Date, Firestore Timestamp, or ISO date string as DD-MM-YYYY. */
+export function formatDate(value: DateLike): string {
+  const d = toDate(value);
+  if (!d) return "—";
+  return `${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()}`;
+}
+
+/** Formats a Date, Firestore Timestamp, or ISO date string as DD-MM-YYYY, HH:MM AM/PM. */
+export function formatDateTime(value: DateLike): string {
+  const d = toDate(value);
+  if (!d) return "—";
+  const time = d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true });
+  return `${formatDate(d)}, ${time}`;
 }

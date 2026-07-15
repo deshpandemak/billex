@@ -7,9 +7,7 @@ export interface ParsedBoardEntry {
   caseYear: string;
   fullCaseNumber: string;
   /** Petitioner advocate name (column 3 of the board — not the litigant party name) */
-  partyName: string;
-  /** Section header at the time of this entry (e.g. "FRESH ADMISSION") */
-  remarks: string;
+  petitioner: string;
   /** All pleader names for this matter: GP / AGP / Addl GP / B'PNL — may span multiple lines */
   gpAdvocate: string;
   courtName: string;
@@ -77,12 +75,12 @@ function parseDate(raw: string): string {
  *  3. If no title is found, fall back to double-space splitting (PDF column separator).
  *  4. If neither applies, treat everything as the petitioner name.
  */
-function splitAdvocates(afterCase: string): { partyName: string; resAdvocateText: string } {
+function splitAdvocates(afterCase: string): { petitioner: string; resAdvocateText: string } {
   const gpMatch = afterCase.match(GP_DESIGNATION_REGEX);
 
   if (!gpMatch || gpMatch.index === undefined) {
     // No GP designation — the whole text is the petitioner advocate (or N/S)
-    return { partyName: afterCase.trim(), resAdvocateText: "" };
+    return { petitioner: afterCase.trim(), resAdvocateText: "" };
   }
 
   // Text from the start up to and including the GP designation
@@ -98,27 +96,27 @@ function splitAdvocates(afterCase: string): { partyName: string; resAdvocateText
 
   if (lastTitleIdx > 0) {
     return {
-      partyName: afterCase.substring(0, lastTitleIdx).trim(),
+      petitioner: afterCase.substring(0, lastTitleIdx).trim(),
       resAdvocateText: afterCase.substring(lastTitleIdx).trim(),
     };
   }
 
   if (lastTitleIdx === 0) {
     // The entire text starts with a title — whole string is respondent
-    return { partyName: "", resAdvocateText: afterCase.trim() };
+    return { petitioner: "", resAdvocateText: afterCase.trim() };
   }
 
   // No title found — try double-space (PDF column separator)
   const doubleSpaceIdx = afterCase.lastIndexOf("  ", gpMatch.index);
   if (doubleSpaceIdx > 0) {
     return {
-      partyName: afterCase.substring(0, doubleSpaceIdx).trim(),
+      petitioner: afterCase.substring(0, doubleSpaceIdx).trim(),
       resAdvocateText: afterCase.substring(doubleSpaceIdx).trim(),
     };
   }
 
   // Cannot determine split — treat everything as petitioner
-  return { partyName: afterCase.trim(), resAdvocateText: "" };
+  return { petitioner: afterCase.trim(), resAdvocateText: "" };
 }
 
 export function parseBoardPdf(text: string, sourceFile: string): ParsedBoardEntry[] {
@@ -129,7 +127,6 @@ export function parseBoardPdf(text: string, sourceFile: string): ParsedBoardEntr
   let currentBoardType = "";
   let currentCourt = "";
   let currentBenchId = "";
-  let currentSection = "";
   let fallbackDateSearchDone = false;
 
   let i = 0;
@@ -186,8 +183,6 @@ export function parseBoardPdf(text: string, sourceFile: string): ParsedBoardEntr
     // ── Section header (e.g. * FRESH ADMISSION *) ────────────────────────────
     const sectionMatch = line.match(SECTION_HEADER_REGEX);
     if (sectionMatch) {
-      // Collapse multiple spaces that PDF extraction preserves from the original layout
-      currentSection = sectionMatch[1].trim().replace(/\s+/g, " ");
       i++;
       continue;
     }
@@ -216,7 +211,7 @@ export function parseBoardPdf(text: string, sourceFile: string): ParsedBoardEntr
       const fullCaseNumber = `${caseType}/${caseNo}/${caseYear}`;
 
       const afterCase = effectiveLine.substring(effectiveLine.indexOf(fullCaseNumber) + fullCaseNumber.length).trim();
-      const { partyName, resAdvocateText } = splitAdvocates(afterCase);
+      const { petitioner, resAdvocateText } = splitAdvocates(afterCase);
 
       const linkedCases: string[] = [];
       let extraRes = resAdvocateText;
@@ -286,8 +281,7 @@ export function parseBoardPdf(text: string, sourceFile: string): ParsedBoardEntr
         caseNo,
         caseYear,
         fullCaseNumber,
-        partyName: partyName.replace(/\s+/g, " ").replace(/,$/, "").trim(),
-        remarks: currentSection,
+        petitioner: petitioner.replace(/\s+/g, " ").replace(/,$/, "").trim(),
         gpAdvocate: extraRes.replace(/\s+/g, " ").trim(),
         courtName: currentCourt,
         benchId: currentBenchId,

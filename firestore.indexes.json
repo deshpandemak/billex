@@ -17,6 +17,14 @@
       ]
     },
     {
+      "collectionGroup": "boardEntries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "pleaderId", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "bills",
       "queryScope": "COLLECTION",
       "fields": [

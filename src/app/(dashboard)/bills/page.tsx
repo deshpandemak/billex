@@ -4,12 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
-  addDoc, collection, doc, getDoc, getDocs, orderBy, query, Timestamp, where,
+  addDoc, collection, doc, getDocs, orderBy, query, Timestamp, where, writeBatch,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase/client";
 import { useAuth } from "@/lib/auth/context";
 import { isAdmin, isBillViewer, isDataOperator } from "@/lib/auth/roles";
 import { logAudit } from "@/lib/audit";
+import { formatDate } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,12 +22,11 @@ import { BILL_STATUS_LABELS, BILL_STATUSES } from "@/types";
 
 const STATUS_COLORS: Record<BillStatus, string> = {
   open_for_review: "bg-yellow-100 text-yellow-800",
-  under_revision: "bg-orange-100 text-orange-800",
   final: "bg-green-100 text-green-700",
 };
 
 export default function BillsPage() {
-  const { user, role, loading: authLoading } = useAuth();
+  const { user, role, pleaderId, loading: authLoading } = useAuth();
   const router = useRouter();
   const admin = isAdmin(role);
   const dataOp = isDataOperator(role);
@@ -63,18 +63,17 @@ export default function BillsPage() {
       const pleadersSnap = await getDocs(query(collection(db, "pleaders"), orderBy("name")));
       setPleaders(pleadersSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as Pleader));
 
-      // Bill viewers may only read their own pleader's bills per Firestore rules.
-      // Issue the scoped query upfront to avoid PERMISSION_DENIED on the broad collection read.
+      // Bill viewers may only read their own pleader's bills per Firestore rules —
+      // never anyone else's. Issue the scoped query upfront to avoid
+      // PERMISSION_DENIED on the broad collection read.
       let billsSnap;
-      if (billViewer && !admin && !dataOp) {
-        const userSnap = await getDoc(doc(db, "users", user!.uid));
-        const myPleaderId = userSnap.data()?.pleaderId as string | undefined;
-        if (!myPleaderId) {
+      if (billViewer) {
+        if (!pleaderId) {
           setBills([]);
           return;
         }
         billsSnap = await getDocs(
-          query(collection(db, "bills"), where("pleaderId", "==", myPleaderId), orderBy("createdAt", "desc"))
+          query(collection(db, "bills"), where("pleaderId", "==", pleaderId), orderBy("createdAt", "desc"))
         );
       } else {
         billsSnap = await getDocs(query(collection(db, "bills"), orderBy("createdAt", "desc")));
@@ -150,13 +149,18 @@ export default function BillsPage() {
             createdBy: user.uid,
             createdByName: user.displayName || user.email || "",
             submittedAt: now,
-            reviewerRemarks: "",
-            reviewerRemarksBy: "",
-            reviewerRemarksAt: null,
             finalizedAt: null,
             finalizedBy: null,
             finalizedByName: null,
           });
+
+          // Link these entries to the bill so the Bill Detail page's
+          // corrections can be frozen once this bill is submitted/finalized.
+          const batch = writeBatch(db);
+          entries.forEach((entry) => {
+            batch.update(doc(db, "boardEntries", entry.id), { billId: billRef.id, billLocked: false });
+          });
+          await batch.commit();
 
           logAudit(
             "bill_generated", "bill", billRef.id,
@@ -284,7 +288,7 @@ export default function BillsPage() {
                 {filteredBills.map((b) => (
                   <tr key={b.id} className="border-b last:border-0 hover:bg-gray-50">
                     <td className="px-4 py-3 font-medium">{b.pleaderName}</td>
-                    <td className="px-4 py-3 text-gray-600">{b.dateFrom} → {b.dateTo}</td>
+                    <td className="px-4 py-3 text-gray-600">{formatDate(b.dateFrom)} → {formatDate(b.dateTo)}</td>
                     <td className="px-4 py-3">{b.entryCount}</td>
                     <td className="px-4 py-3 font-semibold">₹{b.totalFees.toLocaleString()}</td>
                     <td className="px-4 py-3">
@@ -294,7 +298,7 @@ export default function BillsPage() {
                     </td>
                     <td className="px-4 py-3 text-gray-500">{b.createdByName}</td>
                     <td className="px-4 py-3 text-gray-500">
-                      {b.createdAt?.toDate?.().toLocaleDateString("en-IN") ?? "—"}
+                      {formatDate(b.createdAt)}
                     </td>
                     <td className="px-4 py-3">
                       <Link href={`/bills/${b.id}`} className="text-blue-600 hover:underline text-xs font-medium">

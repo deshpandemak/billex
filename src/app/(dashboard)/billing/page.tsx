@@ -6,6 +6,7 @@ import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase/client";
 import { useAuth } from "@/lib/auth/context";
 import { isAdmin, isBillViewer } from "@/lib/auth/roles";
+import { formatDate } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,9 +17,10 @@ import type { BoardEntry, Designation } from "@/types";
 import { DESIGNATION_LABELS, DESIGNATIONS, RESULT_STATUS_LABELS } from "@/types";
 
 export default function BillingPage() {
-  const { role, loading: authLoading } = useAuth();
+  const { role, pleaderId, loading: authLoading } = useAuth();
   const router = useRouter();
-  const allowed = isBillViewer(role) || isAdmin(role);
+  const billViewer = isBillViewer(role);
+  const allowed = billViewer || isAdmin(role);
 
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -34,11 +36,22 @@ export default function BillingPage() {
   }, [allowed, authLoading, router]);
 
   async function generateReport() {
+    // Bill viewers only ever see board entries for their own linked pleader —
+    // never anyone else's bills or data. With no pleader linked, there's
+    // nothing they're allowed to see.
+    if (billViewer && !pleaderId) {
+      setRows([]);
+      setSearched(true);
+      setError("Your login isn't linked to a Pleader yet. Contact your Admin.");
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
       const ref = collection(db, "boardEntries");
       const constraints = [];
+      if (billViewer) constraints.push(where("pleaderId", "==", pleaderId));
       if (dateFrom) constraints.push(where("date", ">=", dateFrom));
       if (dateTo) constraints.push(where("date", "<=", dateTo));
 
@@ -59,7 +72,7 @@ export default function BillingPage() {
   }
 
   function exportCSV() {
-    const header = "Date,Case Type,Case No.,Year,Party Name,Remarks,Status,Fees,Pleader,Designation\n";
+    const header = "Date,Case Type,Case No.,Year,Party Name,Status,Fees,Pleader,Designation\n";
     const body = rows
       .map((r) =>
         [
@@ -67,8 +80,7 @@ export default function BillingPage() {
           r.caseType,
           r.caseNo,
           r.year,
-          `"${r.partyName.replace(/"/g, '""')}"`,
-          `"${r.remarks.replace(/"/g, '""')}"`,
+          `"${r.petitioner.replace(/"/g, '""')}"`,
           RESULT_STATUS_LABELS[r.status],
           r.fees,
           r.pleaderName,
@@ -141,9 +153,10 @@ export default function BillingPage() {
               <table className="w-full min-w-[900px] text-sm">
                 <thead>
                   <tr className="border-b bg-gray-50 text-left text-gray-500">
+                    <th className="px-4 py-3 font-medium">Sr. No.</th>
                     <th className="px-4 py-3 font-medium">Date</th>
                     <th className="px-4 py-3 font-medium">Case</th>
-                    <th className="px-4 py-3 font-medium">Party</th>
+                    <th className="px-4 py-3 font-medium">Petitioner V/S Respondent</th>
                     <th className="px-4 py-3 font-medium">Status</th>
                     <th className="px-4 py-3 font-medium">Pleader</th>
                     <th className="px-4 py-3 font-medium">Designation</th>
@@ -151,13 +164,14 @@ export default function BillingPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((r) => (
+                  {rows.map((r, i) => (
                     <tr key={r.id} className="border-b last:border-0">
-                      <td className="px-4 py-3">{r.date}</td>
+                      <td className="px-4 py-3 text-gray-400">{i + 1}</td>
+                      <td className="px-4 py-3">{formatDate(r.date)}</td>
                       <td className="px-4 py-3 font-mono">
                         {r.caseType} {r.caseNo}/{r.year}
                       </td>
-                      <td className="px-4 py-3">{r.partyName}</td>
+                      <td className="px-4 py-3">{r.petitioner} V/S {r.respondent}</td>
                       <td className="px-4 py-3">{RESULT_STATUS_LABELS[r.status]}</td>
                       <td className="px-4 py-3">{r.pleaderName}</td>
                       <td className="px-4 py-3">{r.designation ? DESIGNATION_LABELS[r.designation] : "—"}</td>
@@ -165,7 +179,7 @@ export default function BillingPage() {
                     </tr>
                   ))}
                   <tr className="border-t-2 font-bold">
-                    <td className="px-4 py-3" colSpan={6}>
+                    <td className="px-4 py-3" colSpan={7}>
                       Total
                     </td>
                     <td className="px-4 py-3">₹{totalFees.toLocaleString()}</td>
