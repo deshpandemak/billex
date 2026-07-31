@@ -64,19 +64,29 @@ export default function AdminUsersPage() {
     const formEl = e.currentTarget;
     const form = new FormData(formEl);
     const role = form.get("role") as UserRole;
-    const pleaderId = form.get("pleaderId") as string;
-    if (role === "bill_viewer" && !pleaderId) {
-      setError("Please select the Pleader this Bill Viewer login belongs to.");
-      return;
+
+    let displayName: string;
+    let pleaderId: string | null = null;
+    if (role === "bill_viewer") {
+      pleaderId = (form.get("pleaderId") as string) || "";
+      if (!pleaderId) {
+        setError("Please select the Pleader this Bill Viewer login belongs to.");
+        return;
+      }
+      const pleader = pleaders.find((p) => p.id === pleaderId);
+      if (!pleader) {
+        setError("Selected pleader not found. Please refresh and try again.");
+        return;
+      }
+      // Bill Viewer logins are named after — and always reflect — the
+      // configured Pleader, not a free-typed name.
+      displayName = pleader.name;
+    } else {
+      displayName = (form.get("displayName") as string) || "";
     }
+
     setCreating(true);
-    const body = {
-      email: form.get("email"),
-      displayName: form.get("displayName"),
-      password: form.get("password"),
-      role,
-      pleaderId: role === "bill_viewer" ? pleaderId : null,
-    };
+    const body = { email: form.get("email"), displayName, password: form.get("password"), role, pleaderId };
     const res = await authedFetch("/api/admin/users", { method: "POST", body: JSON.stringify(body) });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
@@ -105,18 +115,6 @@ export default function AdminUsersPage() {
       await updateDoc(doc(db, "users", uid), { pleaderId: null });
     }
     setUsers((prev) => prev.map((u) => (u.uid === uid ? { ...u, role: newRole, pleaderId: newRole !== "bill_viewer" ? null : u.pleaderId } : u)));
-  }
-
-  async function linkPleader(uid: string, pleaderId: string) {
-    setError(null);
-    try {
-      await updateDoc(doc(db, "users", uid), { pleaderId: pleaderId || null });
-      setUsers((prev) => prev.map((u) => (u.uid === uid ? { ...u, pleaderId: pleaderId || null } : u)));
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setError(`Failed to link pleader: ${msg}`);
-      console.error("[admin/users] linkPleader", err);
-    }
   }
 
   async function toggleActive(uid: string, active: boolean) {
@@ -156,7 +154,19 @@ export default function AdminUsersPage() {
         <CardContent>
           <form onSubmit={handleCreate} className="flex flex-wrap items-end gap-4">
             <div><Label>Email</Label><Input name="email" type="email" required /></div>
-            <div><Label>Name</Label><Input name="displayName" required /></div>
+            <div>
+              <Label>{createRole === "bill_viewer" ? "Pleader" : "Name"}</Label>
+              {createRole === "bill_viewer" ? (
+                <Select name="pleaderId" defaultValue="" required>
+                  <option value="" disabled>Select a pleader...</option>
+                  {pleaders.filter((p) => p.active).map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </Select>
+              ) : (
+                <Input name="displayName" required />
+              )}
+            </div>
             <div><Label>Temporary Password</Label><Input name="password" type="password" minLength={6} required /></div>
             <div>
               <Label>Role</Label>
@@ -171,17 +181,6 @@ export default function AdminUsersPage() {
                 ))}
               </Select>
             </div>
-            {createRole === "bill_viewer" && (
-              <div>
-                <Label>Pleader</Label>
-                <Select name="pleaderId" defaultValue="" required>
-                  <option value="" disabled>Select a pleader...</option>
-                  {pleaders.filter((p) => p.active).map((p) => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </Select>
-              </div>
-            )}
             <Button type="submit" disabled={creating}>{creating ? "Creating..." : "Create Login"}</Button>
           </form>
           {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
@@ -200,7 +199,6 @@ export default function AdminUsersPage() {
                   <th className="px-4 py-3 font-medium">Name</th>
                   <th className="px-4 py-3 font-medium">Email</th>
                   <th className="px-4 py-3 font-medium">Role</th>
-                  <th className="px-4 py-3 font-medium">Linked Pleader</th>
                   <th className="px-4 py-3 font-medium">Status</th>
                   <th className="px-4 py-3 font-medium">Actions</th>
                 </tr>
@@ -208,37 +206,24 @@ export default function AdminUsersPage() {
               <tbody>
                 {users.map((u) => (
                   <tr key={u.uid} className="border-b last:border-0">
-                    <td className="px-4 py-3">{u.displayName}</td>
+                    <td className="px-4 py-3">
+                      {u.role === "bill_viewer" ? (
+                        pleaders.find((p) => p.id === u.pleaderId)?.name ?? (
+                          <span className="text-red-600">⚠ Unlinked</span>
+                        )
+                      ) : (
+                        u.displayName
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-gray-500">{u.email}</td>
                     <td className="px-4 py-3">
                       <Select value={u.role} onChange={(e) => updateRole(u.uid, e.target.value as UserRole)} className="h-8 w-auto">
-                        {(Object.keys(ROLE_LABELS) as UserRole[]).map((r) => (
-                          <option key={r} value={r}>{ROLE_LABELS[r]}</option>
-                        ))}
+                        {(Object.keys(ROLE_LABELS) as UserRole[])
+                          .filter((r) => r !== "bill_viewer" || u.role === "bill_viewer")
+                          .map((r) => (
+                            <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+                          ))}
                       </Select>
-                    </td>
-                    <td className="px-4 py-3">
-                      {u.role === "bill_viewer" ? (
-                        <div className="space-y-1">
-                          <Select
-                            value={u.pleaderId ?? ""}
-                            onChange={(e) => linkPleader(u.uid, e.target.value)}
-                            className="h-8 w-48"
-                          >
-                            <option value="">— None —</option>
-                            {pleaders.filter((p) => p.active).map((p) => (
-                              <option key={p.id} value={p.id}>{p.name}</option>
-                            ))}
-                          </Select>
-                          {!u.pleaderId && (
-                            <p className="text-xs text-red-600">
-                              ⚠ Unlinked — this login won&apos;t see any bills or data until a pleader is selected.
-                            </p>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-gray-400 text-xs">N/A</span>
-                      )}
                     </td>
                     <td className="px-4 py-3">
                       <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${u.active ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>

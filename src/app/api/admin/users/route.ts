@@ -95,6 +95,15 @@ export async function PATCH(request: NextRequest) {
   if (role && !VALID_ROLES.includes(role)) {
     return NextResponse.json({ error: "Invalid role" }, { status: 400 });
   }
+  if (role === "bill_viewer") {
+    // Bill Viewer logins must be created with a linked Pleader via POST —
+    // there's no way to attach one through this endpoint, so switching an
+    // existing login to this role here would leave it unlinked.
+    return NextResponse.json(
+      { error: "Bill Viewer logins must be created via the Create Login form, not by changing an existing login's role." },
+      { status: 400 }
+    );
+  }
 
   const updates: Record<string, unknown> = {};
   if (role) updates.role = role;
