@@ -4,7 +4,7 @@
       "collectionGroup": "boardEntries",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "date", "order": "ASCENDING" },
+        { "fieldPath": "dateISO", "order": "ASCENDING" },
         { "fieldPath": "caseNo", "order": "ASCENDING" }
       ]
     },
@@ -13,7 +13,7 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "pleaderId", "order": "ASCENDING" },
-        { "fieldPath": "date", "order": "ASCENDING" }
+        { "fieldPath": "dateISO", "order": "ASCENDING" }
       ]
     },
     {
@@ -21,7 +21,7 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "pleaderId", "order": "ASCENDING" },
-        { "fieldPath": "date", "order": "DESCENDING" }
+        { "fieldPath": "dateISO", "order": "DESCENDING" }
       ]
     },
     {

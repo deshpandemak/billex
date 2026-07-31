@@ -37,3 +37,13 @@ export function formatDateTime(value: DateLike): string {
   const time = d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true });
   return `${formatDate(d)}, ${time}`;
 }
+
+const DISPLAY_DATE_RE = /^(\d{2})-(\d{2})-(\d{4})$/;
+
+/** Converts a DD-MM-YYYY display date back to YYYY-MM-DD, for native <input type="date"> values. */
+export function displayToIso(display: string): string {
+  const m = display.match(DISPLAY_DATE_RE);
+  if (!m) return display;
+  const [, dd, mm, yyyy] = m;
+  return `${yyyy}-${mm}-${dd}`;
+}

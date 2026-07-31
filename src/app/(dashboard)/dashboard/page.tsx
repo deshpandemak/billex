@@ -6,7 +6,6 @@ import { db } from "@/lib/firebase/client";
 import { useAuth } from "@/lib/auth/context";
 import { isAdmin, isBillViewer } from "@/lib/auth/roles";
 import { StatsCard } from "@/components/stats-card";
-import { formatDate } from "@/lib/utils";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { ClipboardList, Scale, Users } from "lucide-react";
 import type { BoardEntry } from "@/types";
@@ -54,11 +53,11 @@ export default function DashboardPage() {
       const entriesQuery = query(
         collection(db, "boardEntries"),
         ...scope,
-        where("date", ">=", monthStart()),
-        orderBy("date", "desc")
+        where("dateISO", ">=", monthStart()),
+        orderBy("dateISO", "desc")
       );
-      const weekQuery = query(collection(db, "boardEntries"), ...scope, where("date", ">=", weekStart()));
-      const todayQuery = query(collection(db, "boardEntries"), ...scope, where("date", "==", todayISO()));
+      const weekQuery = query(collection(db, "boardEntries"), ...scope, where("dateISO", ">=", weekStart()));
+      const todayQuery = query(collection(db, "boardEntries"), ...scope, where("dateISO", "==", todayISO()));
 
       const [entriesSnap, weekSnap, todaySnap] = await Promise.all([
         getDocs(entriesQuery),
@@ -124,7 +123,7 @@ export default function DashboardPage() {
               <tbody>
                 {recent.map((e) => (
                   <tr key={e.id} className="border-b last:border-0">
-                    <td className="py-2">{formatDate(e.date)}</td>
+                    <td className="py-2">{e.date}</td>
                     <td className="py-2 font-mono">
                       {e.caseType} {e.caseNo}/{e.year}
                     </td>

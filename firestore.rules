@@ -18,7 +18,9 @@ rules_version = '2';
 //   disposed: number, updatedAt: timestamp, updatedBy: string
 //
 // Collection: boardEntries
-//   date: string (YYYY-MM-DD), caseType: string, caseNo: string,
+//   date: string (DD-MM-YYYY, display/canonical),
+//   dateISO: string (YYYY-MM-DD, internal — Firestore range/order queries only),
+//   caseType: string, caseNo: string,
 //   year: string, petitioner: string, respondent: string, status: string,
 //   pleaderId: string, pleaderName: string, designation: string,
 //   fees: number, correctionRequested: string, correctionRequestedBy: string,
@@ -27,7 +29,10 @@ rules_version = '2';
 //   createdBy: string, updatedBy: string
 //
 // Collection: bills
-//   dateFrom: string, dateTo: string, pleaderId: string,
+//   dateFrom: string (DD-MM-YYYY), dateTo: string (DD-MM-YYYY),
+//   dateFromISO: string (YYYY-MM-DD, internal — range query only),
+//   dateToISO: string (YYYY-MM-DD, internal — range query only),
+//   pleaderId: string,
 //   pleaderName: string, designation: string, status: string,
 //   totalFees: number, entryCount: number, createdAt: timestamp,
 //   createdBy: string, createdByName: string, submittedAt: timestamp|null,

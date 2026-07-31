@@ -52,13 +52,13 @@ export default function BillingPage() {
       const ref = collection(db, "boardEntries");
       const constraints = [];
       if (billViewer) constraints.push(where("pleaderId", "==", pleaderId));
-      if (dateFrom) constraints.push(where("date", ">=", dateFrom));
-      if (dateTo) constraints.push(where("date", "<=", dateTo));
+      if (dateFrom) constraints.push(where("dateISO", ">=", dateFrom));
+      if (dateTo) constraints.push(where("dateISO", "<=", dateTo));
 
       const snap = await getDocs(query(ref, ...constraints));
       let entries = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as BoardEntry);
       if (designation) entries = entries.filter((e) => e.designation === designation);
-      entries.sort((a, b) => a.date.localeCompare(b.date));
+      entries.sort((a, b) => a.dateISO.localeCompare(b.dateISO));
 
       setRows(entries);
       setSearched(true);
@@ -92,7 +92,7 @@ export default function BillingPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `billex-billing-${new Date().toISOString().split("T")[0]}.csv`;
+    a.download = `billex-billing-${formatDate(new Date())}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -167,7 +167,7 @@ export default function BillingPage() {
                   {rows.map((r, i) => (
                     <tr key={r.id} className="border-b last:border-0">
                       <td className="px-4 py-3 text-gray-400">{i + 1}</td>
-                      <td className="px-4 py-3">{formatDate(r.date)}</td>
+                      <td className="px-4 py-3">{r.date}</td>
                       <td className="px-4 py-3 font-mono">
                         {r.caseType} {r.caseNo}/{r.year}
                       </td>

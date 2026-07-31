@@ -6,7 +6,7 @@ import { collection, getDocs, limit, orderBy, query, Timestamp, where } from "fi
 import { db } from "@/lib/firebase/client";
 import { useAuth } from "@/lib/auth/context";
 import { isAdmin } from "@/lib/auth/roles";
-import { formatDateTime } from "@/lib/utils";
+import { formatDate, formatDateTime } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -149,9 +149,9 @@ export default function AuditPage() {
 
   const dateLabel =
     filterDateFrom === filterDateTo && filterDateFrom
-      ? filterDateFrom === todayISO() ? "Today" : filterDateFrom
+      ? filterDateFrom === todayISO() ? "Today" : formatDate(filterDateFrom)
       : filterDateFrom && filterDateTo
-      ? `${filterDateFrom} → ${filterDateTo}`
+      ? `${formatDate(filterDateFrom)} → ${formatDate(filterDateTo)}`
       : "All dates";
 
   return (

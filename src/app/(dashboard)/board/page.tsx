@@ -6,7 +6,7 @@ import {
   addDoc, collection, deleteDoc, doc, getDocs, orderBy, query, Timestamp, updateDoc, where,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase/client";
-import { cn, formatDate } from "@/lib/utils";
+import { cn, displayToIso, formatDate } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/context";
 import { isDataOperator } from "@/lib/auth/roles";
 import { computeFees } from "@/lib/billing/fees";
@@ -96,14 +96,14 @@ export default function BoardPage() {
     if (!dataOperator) return;
     async function loadRows() {
       setLoading(true);
-      const snap = await getDocs(query(collection(db, "boardEntries"), where("date", "==", selectedDate)));
+      const snap = await getDocs(query(collection(db, "boardEntries"), where("dateISO", "==", selectedDate)));
       setRows(
         snap.docs.map((d) => {
           const data = d.data() as BoardEntry;
           return {
             id: d.id,
             persisted: true,
-            date: data.date,
+            date: displayToIso(data.date),
             caseType: data.caseType,
             caseNo: data.caseNo,
             year: data.year,
@@ -211,9 +211,9 @@ export default function BoardPage() {
         await deleteDoc(doc(db, "boardEntries", row.id));
         if (user && role) {
           logAudit("board_entry_deleted", "boardEntry", row.id,
-            `Deleted entry ${row.caseType}/${row.caseNo}/${row.year} (${row.date})`,
+            `Deleted entry ${row.caseType}/${row.caseNo}/${row.year} (${formatDate(row.date)})`,
             { uid: user.uid, displayName: user.displayName || user.email || "", role },
-            { date: row.date, caseType: row.caseType, caseNo: row.caseNo }
+            { date: formatDate(row.date), caseType: row.caseType, caseNo: row.caseNo }
           );
         }
       } catch (err) {
@@ -238,7 +238,8 @@ export default function BoardPage() {
         rowSnapshot.map(async (row) => {
           const pleader = pleaders.find((p) => p.id === row.pleaderId);
           const payload = {
-            date: row.date,
+            date: formatDate(row.date),
+            dateISO: row.date,
             caseType: row.caseType,
             caseNo: row.caseNo,
             year: row.year,
@@ -255,8 +256,8 @@ export default function BoardPage() {
           if (row.persisted) {
             await updateDoc(doc(db, "boardEntries", row.id), payload);
             logAudit("board_entry_updated", "boardEntry", row.id,
-              `Updated entry ${row.caseType}/${row.caseNo}/${row.year} (${row.date})`,
-              actor, { date: row.date, fees: row.fees, pleaderName: pleader?.name || "" }
+              `Updated entry ${row.caseType}/${row.caseNo}/${row.year} (${formatDate(row.date)})`,
+              actor, { date: formatDate(row.date), fees: row.fees, pleaderName: pleader?.name || "" }
             );
             return row;
           }
@@ -264,8 +265,8 @@ export default function BoardPage() {
             ...payload, createdAt: now, createdBy: user.uid,
           });
           logAudit("board_entry_created", "boardEntry", ref.id,
-            `Created entry ${row.caseType}/${row.caseNo}/${row.year} (${row.date})`,
-            actor, { date: row.date, fees: row.fees, pleaderName: pleader?.name || "" }
+            `Created entry ${row.caseType}/${row.caseNo}/${row.year} (${formatDate(row.date)})`,
+            actor, { date: formatDate(row.date), fees: row.fees, pleaderName: pleader?.name || "" }
           );
           return { ...row, id: ref.id, persisted: true };
         })
