@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { cn } from "@/lib/utils";
-import { isAdmin } from "@/lib/auth/roles";
+import { isAdmin, isBillViewer, isDataOperator } from "@/lib/auth/roles";
 
 describe("cn utility", () => {
   it("merges class names", () => {
@@ -25,11 +25,39 @@ describe("isAdmin", () => {
     expect(isAdmin("admin")).toBe(true);
   });
 
-  it("returns false for user role", () => {
-    expect(isAdmin("user")).toBe(false);
+  it("returns false for data_operator role", () => {
+    expect(isAdmin("data_operator")).toBe(false);
   });
 
   it("returns false for null", () => {
     expect(isAdmin(null)).toBe(false);
+  });
+});
+
+describe("isDataOperator", () => {
+  it("returns true for data_operator role", () => {
+    expect(isDataOperator("data_operator")).toBe(true);
+  });
+
+  it("returns false for admin role", () => {
+    expect(isDataOperator("admin")).toBe(false);
+  });
+
+  it("returns false for null", () => {
+    expect(isDataOperator(null)).toBe(false);
+  });
+});
+
+describe("isBillViewer", () => {
+  it("returns true for bill_viewer role", () => {
+    expect(isBillViewer("bill_viewer")).toBe(true);
+  });
+
+  it("returns false for admin role", () => {
+    expect(isBillViewer("admin")).toBe(false);
+  });
+
+  it("returns false for null", () => {
+    expect(isBillViewer(null)).toBe(false);
   });
 });

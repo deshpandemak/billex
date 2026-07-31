@@ -18,7 +18,8 @@ async function requireAdmin(request: NextRequest) {
       return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
     }
     return { uid: decoded.uid };
-  } catch {
+  } catch (err) {
+    console.error("[admin/users] requireAdmin token verification failed", err);
     return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
   }
 }
@@ -39,23 +40,29 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Missing or invalid fields" }, { status: 400 });
   }
 
-  const userRecord = await adminAuth.createUser({
-    email,
-    password,
-    displayName: displayName || email,
-  });
+  try {
+    const userRecord = await adminAuth.createUser({
+      email,
+      password,
+      displayName: displayName || email,
+    });
 
-  await adminDb.collection("users").doc(userRecord.uid).set({
-    email,
-    displayName: displayName || email,
-    role,
-    active: true,
-    createdAt: new Date(),
-    createdBy: auth.uid,
-    lastLoginAt: null,
-  });
+    await adminDb.collection("users").doc(userRecord.uid).set({
+      email,
+      displayName: displayName || email,
+      role,
+      active: true,
+      createdAt: new Date(),
+      createdBy: auth.uid,
+      lastLoginAt: null,
+    });
 
-  return NextResponse.json({ uid: userRecord.uid });
+    return NextResponse.json({ uid: userRecord.uid });
+  } catch (err) {
+    console.error("[admin/users POST] createUser failed", err);
+    const msg = err instanceof Error ? err.message : "Failed to create user";
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
 }
 
 export async function PATCH(request: NextRequest) {
@@ -82,14 +89,19 @@ export async function PATCH(request: NextRequest) {
   if (typeof active === "boolean") updates.active = active;
   if (displayName) updates.displayName = displayName;
 
-  if (Object.keys(updates).length > 0) {
-    await adminDb.collection("users").doc(uid).update(updates);
+  try {
+    if (Object.keys(updates).length > 0) {
+      await adminDb.collection("users").doc(uid).update(updates);
+    }
+    if (typeof active === "boolean") {
+      await adminAuth.updateUser(uid, { disabled: !active });
+    }
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    console.error("[admin/users PATCH] update failed", err);
+    const msg = err instanceof Error ? err.message : "Failed to update user";
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
-  if (typeof active === "boolean") {
-    await adminAuth.updateUser(uid, { disabled: !active });
-  }
-
-  return NextResponse.json({ ok: true });
 }
 
 export async function DELETE(request: NextRequest) {
@@ -101,9 +113,19 @@ export async function DELETE(request: NextRequest) {
   if (!uid) {
     return NextResponse.json({ error: "Missing uid" }, { status: 400 });
   }
+  if (uid === auth.uid) {
+    return NextResponse.json({ error: "Cannot delete your own account" }, { status: 400 });
+  }
 
-  await adminAuth.deleteUser(uid);
-  await adminDb.collection("users").doc(uid).delete();
-
-  return NextResponse.json({ ok: true });
+  try {
+    await Promise.all([
+      adminAuth.deleteUser(uid),
+      adminDb.collection("users").doc(uid).delete(),
+    ]);
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    console.error("[admin/users DELETE] delete failed", err);
+    const msg = err instanceof Error ? err.message : "Failed to delete user";
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
 }

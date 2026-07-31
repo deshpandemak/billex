@@ -17,56 +17,86 @@ import type { Designation, Pleader } from "@/types";
 import { DESIGNATION_LABELS, DESIGNATIONS } from "@/types";
 
 export default function AdminPleadersPage() {
-  const { user, role } = useAuth();
+  const { user, role, loading: authLoading } = useAuth();
   const router = useRouter();
   const admin = isAdmin(role);
   const [pleaders, setPleaders] = useState<Pleader[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!admin) {
-      router.push("/dashboard");
-      return;
-    }
+    if (authLoading) return;
+    if (!admin) { router.push("/dashboard"); return; }
     loadPleaders();
-  }, [admin, router]);
+  }, [admin, authLoading, router]);
 
   async function loadPleaders() {
     setLoading(true);
-    const snap = await getDocs(query(collection(db, "pleaders"), orderBy("name")));
-    setPleaders(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Pleader));
-    setLoading(false);
+    setError(null);
+    try {
+      const snap = await getDocs(query(collection(db, "pleaders"), orderBy("name")));
+      setPleaders(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Pleader));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(`Failed to load pleaders: ${msg}`);
+      console.error("[pleaders] loadPleaders", err);
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function handleCreate(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!user) return;
+    setError(null);
     setSaving(true);
-    const form = new FormData(e.currentTarget);
-    const now = Timestamp.now();
-    await addDoc(collection(db, "pleaders"), {
-      name: form.get("name"),
-      designation: form.get("designation") as Designation,
-      active: true,
-      createdAt: now,
-      updatedAt: now,
-      createdBy: user.uid,
-    });
-    e.currentTarget.reset();
-    await loadPleaders();
-    setSaving(false);
+    const formEl = e.currentTarget; // capture before first await
+    try {
+      const form = new FormData(formEl);
+      const now = Timestamp.now();
+      await addDoc(collection(db, "pleaders"), {
+        name: form.get("name"),
+        designation: form.get("designation") as Designation,
+        active: true,
+        createdAt: now,
+        updatedAt: now,
+        createdBy: user.uid,
+      });
+      formEl.reset();
+      await loadPleaders();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(`Failed to add pleader: ${msg}`);
+      console.error("[pleaders] handleCreate", err);
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function toggleActive(p: Pleader) {
-    await updateDoc(doc(db, "pleaders", p.id), { active: !p.active, updatedAt: Timestamp.now() });
-    setPleaders((prev) => prev.map((x) => (x.id === p.id ? { ...x, active: !p.active } : x)));
+    setError(null);
+    try {
+      await updateDoc(doc(db, "pleaders", p.id), { active: !p.active, updatedAt: Timestamp.now() });
+      setPleaders((prev) => prev.map((x) => (x.id === p.id ? { ...x, active: !p.active } : x)));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(`Failed to update pleader: ${msg}`);
+      console.error("[pleaders] toggleActive", err);
+    }
   }
 
   async function handleDelete(id: string) {
     if (!confirm("Delete this pleader?")) return;
-    await deleteDoc(doc(db, "pleaders", id));
-    setPleaders((prev) => prev.filter((p) => p.id !== id));
+    setError(null);
+    try {
+      await deleteDoc(doc(db, "pleaders", id));
+      setPleaders((prev) => prev.filter((p) => p.id !== id));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(`Failed to delete pleader: ${msg}`);
+      console.error("[pleaders] handleDelete", err);
+    }
   }
 
   if (!admin) return null;
@@ -99,6 +129,7 @@ export default function AdminPleadersPage() {
               {saving ? "Adding..." : "Add Pleader"}
             </Button>
           </form>
+          {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
         </CardContent>
       </Card>
 

@@ -20,37 +20,44 @@ const EMPTY_RATES: RatesByDesignation = DESIGNATIONS.reduce((acc, d) => {
 }, {} as RatesByDesignation);
 
 export default function AdminFeesPage() {
-  const { user, role } = useAuth();
+  const { user, role, loading: authLoading } = useAuth();
   const router = useRouter();
   const admin = isAdmin(role);
   const [rates, setRates] = useState<RatesByDesignation>(EMPTY_RATES);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!admin) {
-      router.push("/dashboard");
-      return;
-    }
+    if (authLoading) return;
+    if (!admin) { router.push("/dashboard"); return; }
 
     async function loadFees() {
       setLoading(true);
-      const snap = await getDocs(collection(db, "feeConfig"));
-      const next = { ...EMPTY_RATES };
-      snap.docs.forEach((d) => {
-        const data = d.data() as FeeConfig;
-        next[data.designation] = {
-          adjourned: data.adjourned ?? 0,
-          heardAdjourned: data.heardAdjourned ?? 0,
-          disposed: data.disposed ?? 0,
-        };
-      });
-      setRates(next);
-      setLoading(false);
+      setError(null);
+      try {
+        const snap = await getDocs(collection(db, "feeConfig"));
+        const next = { ...EMPTY_RATES };
+        snap.docs.forEach((d) => {
+          const data = d.data() as FeeConfig;
+          next[data.designation] = {
+            adjourned: data.adjourned ?? 0,
+            heardAdjourned: data.heardAdjourned ?? 0,
+            disposed: data.disposed ?? 0,
+          };
+        });
+        setRates(next);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setError(`Failed to load fees: ${msg}`);
+        console.error("[fees] loadFees", err);
+      } finally {
+        setLoading(false);
+      }
     }
     loadFees();
-  }, [admin, router]);
+  }, [admin, authLoading, router]);
 
   function updateRate(d: Designation, field: keyof RatesByDesignation[Designation], value: string) {
     setRates((prev) => ({ ...prev, [d]: { ...prev[d], [field]: parseFloat(value) || 0 } }));
@@ -59,20 +66,28 @@ export default function AdminFeesPage() {
 
   async function handleSave() {
     if (!user) return;
+    setError(null);
     setSaving(true);
-    const now = Timestamp.now();
-    await Promise.all(
-      DESIGNATIONS.map((d) =>
-        setDoc(doc(db, "feeConfig", d), {
-          designation: d,
-          ...rates[d],
-          updatedAt: now,
-          updatedBy: user.uid,
-        })
-      )
-    );
-    setSaving(false);
-    setSaved(true);
+    try {
+      const now = Timestamp.now();
+      await Promise.all(
+        DESIGNATIONS.map((d) =>
+          setDoc(doc(db, "feeConfig", d), {
+            designation: d,
+            ...rates[d],
+            updatedAt: now,
+            updatedBy: user.uid,
+          })
+        )
+      );
+      setSaved(true);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(`Failed to save fees: ${msg}`);
+      console.error("[fees] handleSave", err);
+    } finally {
+      setSaving(false);
+    }
   }
 
   if (!admin) return null;
@@ -145,6 +160,7 @@ export default function AdminFeesPage() {
           {saving ? "Saving..." : "Save Fees"}
         </Button>
         {saved && <span className="text-sm text-green-600">Saved.</span>}
+        {error && <span className="text-sm text-red-600">{error}</span>}
       </div>
     </div>
   );

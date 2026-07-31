@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase/client";
+import { isoToDisplay } from "@/lib/date";
 import { useAuth } from "@/lib/auth/context";
 import { isAdmin, isBillViewer } from "@/lib/auth/roles";
 import { Button } from "@/components/ui/button";
@@ -16,7 +17,7 @@ import type { BoardEntry, Designation } from "@/types";
 import { DESIGNATION_LABELS, DESIGNATIONS, RESULT_STATUS_LABELS } from "@/types";
 
 export default function BillingPage() {
-  const { role } = useAuth();
+  const { role, loading: authLoading } = useAuth();
   const router = useRouter();
   const allowed = isBillViewer(role) || isAdmin(role);
 
@@ -26,26 +27,36 @@ export default function BillingPage() {
   const [rows, setRows] = useState<BoardEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (authLoading) return;
     if (!allowed) router.push("/dashboard");
-  }, [allowed, router]);
+  }, [allowed, authLoading, router]);
 
   async function generateReport() {
     setLoading(true);
-    const ref = collection(db, "boardEntries");
-    const constraints = [];
-    if (dateFrom) constraints.push(where("date", ">=", dateFrom));
-    if (dateTo) constraints.push(where("date", "<=", dateTo));
+    setError(null);
+    try {
+      const ref = collection(db, "boardEntries");
+      const constraints = [];
+      if (dateFrom) constraints.push(where("dateISO", ">=", dateFrom));
+      if (dateTo) constraints.push(where("dateISO", "<=", dateTo));
 
-    const snap = await getDocs(query(ref, ...constraints));
-    let entries = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as BoardEntry);
-    if (designation) entries = entries.filter((e) => e.designation === designation);
-    entries.sort((a, b) => a.date.localeCompare(b.date));
+      const snap = await getDocs(query(ref, ...constraints));
+      let entries = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as BoardEntry);
+      if (designation) entries = entries.filter((e) => e.designation === designation);
+      entries.sort((a, b) => a.dateISO.localeCompare(b.dateISO));
 
-    setRows(entries);
-    setSearched(true);
-    setLoading(false);
+      setRows(entries);
+      setSearched(true);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(`Failed to load report: ${msg}`);
+      console.error("[billing] generateReport", err);
+    } finally {
+      setLoading(false);
+    }
   }
 
   function exportCSV() {
@@ -70,7 +81,7 @@ export default function BillingPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `billex-billing-${new Date().toISOString().split("T")[0]}.csv`;
+    a.download = `billex-billing-${isoToDisplay(new Date().toISOString().split("T")[0])}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -118,6 +129,7 @@ export default function BillingPage() {
               </Button>
             )}
           </div>
+          {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
         </CardContent>
       </Card>
 

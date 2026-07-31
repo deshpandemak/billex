@@ -7,10 +7,11 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase/client";
 import { cn } from "@/lib/utils";
+import { displayToIso, isoToDisplay } from "@/lib/date";
 import { useAuth } from "@/lib/auth/context";
 import { isDataOperator } from "@/lib/auth/roles";
 import { computeFees } from "@/lib/billing/fees";
-import { extractLinesFromPdf, parseBoardRowsFromLines } from "@/lib/board/pdfParse";
+import { logAudit } from "@/lib/audit";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -38,8 +39,21 @@ function today() {
   return new Date().toISOString().split("T")[0];
 }
 
+function normalizeName(s: string) {
+  return s.toUpperCase().replace(/[^A-Z\s]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function matchPleader(gpAdvocateText: string, candidates: Pleader[]): string {
+  const normalizedText = normalizeName(gpAdvocateText);
+  const matches = candidates.filter((p) => {
+    const words = normalizeName(p.name).split(" ").filter((w) => w.length >= 3);
+    return words.length > 0 && words.every((w) => normalizedText.includes(w));
+  });
+  return matches.length === 1 ? matches[0].id : "";
+}
+
 export default function BoardPage() {
-  const { user, role } = useAuth();
+  const { user, role, loading: authLoading } = useAuth();
   const router = useRouter();
   const dataOperator = isDataOperator(role);
 
@@ -50,25 +64,31 @@ export default function BoardPage() {
   const [loading, setLoading] = useState(true);
   const [parsing, setParsing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!dataOperator) {
-      router.push("/dashboard");
-    }
-  }, [dataOperator, router]);
+    if (authLoading) return;
+    if (!dataOperator) router.push("/dashboard");
+  }, [dataOperator, authLoading, router]);
 
   useEffect(() => {
     async function loadRefs() {
-      const [pleadersSnap, feesSnap] = await Promise.all([
-        getDocs(query(collection(db, "pleaders"), orderBy("name"))),
-        getDocs(collection(db, "feeConfig")),
-      ]);
-      setPleaders(pleadersSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as Pleader));
-      const feeMap: Partial<Record<Designation, FeeConfig>> = {};
-      feesSnap.docs.forEach((d) => {
-        feeMap[d.id as Designation] = d.data() as FeeConfig;
-      });
-      setFeeConfig(feeMap);
+      try {
+        const [pleadersSnap, feesSnap] = await Promise.all([
+          getDocs(query(collection(db, "pleaders"), orderBy("name"))),
+          getDocs(collection(db, "feeConfig")),
+        ]);
+        setPleaders(pleadersSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as Pleader));
+        const feeMap: Partial<Record<Designation, FeeConfig>> = {};
+        feesSnap.docs.forEach((d) => {
+          feeMap[d.id as Designation] = d.data() as FeeConfig;
+        });
+        setFeeConfig(feeMap);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setError(`Failed to load reference data: ${msg}`);
+        console.error("[board] loadRefs", err);
+      }
     }
     if (dataOperator) loadRefs();
   }, [dataOperator]);
@@ -77,14 +97,14 @@ export default function BoardPage() {
     if (!dataOperator) return;
     async function loadRows() {
       setLoading(true);
-      const snap = await getDocs(query(collection(db, "boardEntries"), where("date", "==", selectedDate)));
+      const snap = await getDocs(query(collection(db, "boardEntries"), where("dateISO", "==", selectedDate)));
       setRows(
         snap.docs.map((d) => {
           const data = d.data() as BoardEntry;
           return {
             id: d.id,
             persisted: true,
-            date: data.date,
+            date: displayToIso(data.date),
             caseType: data.caseType,
             caseNo: data.caseNo,
             year: data.year,
@@ -137,12 +157,33 @@ export default function BoardPage() {
   }
 
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
     setParsing(true);
     try {
-      const lines = await extractLinesFromPdf(file);
-      const parsed = parseBoardRowsFromLines(lines);
+      const formData = new FormData();
+      for (const file of Array.from(files)) {
+        formData.append("files", file);
+      }
+      const token = await user?.getIdToken();
+      const res = await fetch("/api/board/parse", {
+        method: "POST",
+        body: formData,
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "Failed to parse PDF(s).");
+        return;
+      }
+      const parsed = data.entries as {
+        caseType: string;
+        caseNo: string;
+        caseYear: string;
+        partyName: string;
+        remarks: string;
+        gpAdvocate: string;
+      }[];
       setRows((prev) => [
         ...prev,
         ...parsed.map((p) => ({
@@ -151,11 +192,11 @@ export default function BoardPage() {
           date: selectedDate,
           caseType: p.caseType,
           caseNo: p.caseNo,
-          year: p.year,
+          year: p.caseYear,
           partyName: p.partyName,
-          remarks: "",
+          remarks: p.remarks,
           status: "" as ResultStatus | "",
-          pleaderId: "",
+          pleaderId: matchPleader(p.gpAdvocate, activePleaders),
           fees: 0,
         })),
       ]);
@@ -168,53 +209,99 @@ export default function BoardPage() {
   async function handleDeleteRow(row: DraftRow) {
     if (row.persisted) {
       if (!confirm("Delete this row?")) return;
-      await deleteDoc(doc(db, "boardEntries", row.id));
+      try {
+        await deleteDoc(doc(db, "boardEntries", row.id));
+        if (user && role) {
+          logAudit("board_entry_deleted", "boardEntry", row.id,
+            `Deleted entry ${row.caseType}/${row.caseNo}/${row.year} (${isoToDisplay(row.date)})`,
+            { uid: user.uid, displayName: user.displayName || user.email || "", role },
+            { date: isoToDisplay(row.date), caseType: row.caseType, caseNo: row.caseNo }
+          );
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setError(`Failed to delete row: ${msg}`);
+        console.error("[board] handleDeleteRow", err);
+        return;
+      }
     }
     setRows((prev) => prev.filter((r) => r.id !== row.id));
   }
 
   async function handleSaveAll() {
-    if (!user) return;
+    if (!user || !role) return;
+    setError(null);
     setSaving(true);
+    const actor = { uid: user.uid, displayName: user.displayName || user.email || "", role };
     const now = Timestamp.now();
-    const updated = await Promise.all(
-      rows.map(async (row) => {
-        const pleader = pleaders.find((p) => p.id === row.pleaderId);
-        const payload = {
-          date: row.date,
-          caseType: row.caseType,
-          caseNo: row.caseNo,
-          year: row.year,
-          partyName: row.partyName,
-          remarks: row.remarks,
-          status: row.status,
-          pleaderId: row.pleaderId,
-          pleaderName: pleader?.name || "",
-          designation: pleader?.designation || "",
-          fees: row.fees,
-          updatedAt: now,
-          updatedBy: user.uid,
-        };
-        if (row.persisted) {
-          await updateDoc(doc(db, "boardEntries", row.id), payload);
-          return row;
-        }
-        const ref = await addDoc(collection(db, "boardEntries"), {
-          ...payload,
-          createdAt: now,
-          createdBy: user.uid,
-        });
-        return { ...row, id: ref.id, persisted: true };
-      })
-    );
-    setRows(updated);
-    setSaving(false);
+    const rowSnapshot = rows;
+    try {
+      const results = await Promise.allSettled(
+        rowSnapshot.map(async (row) => {
+          const pleader = pleaders.find((p) => p.id === row.pleaderId);
+          const payload = {
+            date: isoToDisplay(row.date),
+            dateISO: row.date,
+            caseType: row.caseType,
+            caseNo: row.caseNo,
+            year: row.year,
+            partyName: row.partyName,
+            remarks: row.remarks,
+            status: row.status,
+            pleaderId: row.pleaderId,
+            pleaderName: pleader?.name || "",
+            designation: pleader?.designation || "",
+            fees: row.fees,
+            updatedAt: now,
+            updatedBy: user.uid,
+          };
+          if (row.persisted) {
+            await updateDoc(doc(db, "boardEntries", row.id), payload);
+            logAudit("board_entry_updated", "boardEntry", row.id,
+              `Updated entry ${row.caseType}/${row.caseNo}/${row.year} (${isoToDisplay(row.date)})`,
+              actor, { date: isoToDisplay(row.date), fees: row.fees, pleaderName: pleader?.name || "" }
+            );
+            return row;
+          }
+          const ref = await addDoc(collection(db, "boardEntries"), {
+            ...payload, createdAt: now, createdBy: user.uid,
+          });
+          logAudit("board_entry_created", "boardEntry", ref.id,
+            `Created entry ${row.caseType}/${row.caseNo}/${row.year} (${isoToDisplay(row.date)})`,
+            actor, { date: isoToDisplay(row.date), fees: row.fees, pleaderName: pleader?.name || "" }
+          );
+          return { ...row, id: ref.id, persisted: true };
+        })
+      );
+
+      // Apply committed state to each row; leave failed rows unchanged so retry won't duplicate them
+      setRows(rowSnapshot.map((row, i) => {
+        const r = results[i];
+        return r.status === "fulfilled" ? r.value : row;
+      }));
+
+      const failedCount = results.filter((r) => r.status === "rejected").length;
+      if (failedCount > 0) {
+        setError(`${failedCount} row(s) failed to save. Please correct and try again.`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(`Failed to save: ${msg}`);
+      console.error("[board] handleSaveAll", err);
+    } finally {
+      setSaving(false);
+    }
   }
 
   if (!dataOperator) return null;
 
   return (
     <div className="space-y-6">
+      {error && (
+        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <h1 className="text-2xl font-bold">Board Data</h1>
         <div className="flex items-end gap-4">
@@ -226,6 +313,7 @@ export default function BoardPage() {
             <input
               type="file"
               accept=".pdf"
+              multiple
               className="hidden"
               id="board-pdf-upload"
               onChange={handleUpload}
@@ -251,7 +339,7 @@ export default function BoardPage() {
       <Card>
         <CardHeader>
           <CardTitle>
-            Cases for {selectedDate} {loading && "(loading...)"}
+            Cases for {isoToDisplay(selectedDate)} {loading && "(loading...)"}
           </CardTitle>
         </CardHeader>
         <CardContent className="overflow-x-auto p-0">
@@ -267,7 +355,7 @@ export default function BoardPage() {
                   <th className="px-3 py-3 font-medium">Case Type</th>
                   <th className="px-3 py-3 font-medium">Case No.</th>
                   <th className="px-3 py-3 font-medium">Year</th>
-                  <th className="px-3 py-3 font-medium">Party Name</th>
+                  <th className="px-3 py-3 font-medium">Petitioner Advocate</th>
                   <th className="px-3 py-3 font-medium">Remarks</th>
                   <th className="px-3 py-3 font-medium">Result / Status</th>
                   <th className="px-3 py-3 font-medium">Fees (₹)</th>

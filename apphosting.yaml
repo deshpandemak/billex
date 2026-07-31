@@ -1,0 +1,48 @@
+# Firebase App Hosting configuration.
+# https://firebase.google.com/docs/app-hosting/configure
+
+runConfig:
+  minInstances: 0
+  maxInstances: 2
+
+env:
+  # Client-side Firebase config (safe to expose in the browser bundle).
+  - variable: NEXT_PUBLIC_FIREBASE_API_KEY
+    value: AIzaSyDr8Jju07lU2JfY0FLfEdmXzy_5tYgJHro
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+    value: billex-556a4.firebaseapp.com
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
+    value: billex-556a4
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
+    value: billex-556a4.firebasestorage.app
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+    value: "142988257091"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_APP_ID
+    value: "1:142988257091:web:389981f16278cafef6b1f6"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: FIREBASE_ADMIN_PROJECT_ID
+    value: billex-556a4
+    availability:
+      - RUNTIME
+  # No service account secrets needed in production.
+  # Firebase App Hosting (Cloud Run) automatically attaches the
+  # firebase-app-hosting-compute service account, which has Firebase Admin
+  # access. The Admin SDK picks it up via Application Default Credentials.
+  # Explicit credentials are only needed in .env.local for local dev.

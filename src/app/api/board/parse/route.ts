@@ -1,8 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PDFParse } from "pdf-parse";
+import { extractText } from "unpdf";
 import { parseBoardPdf } from "@/lib/parser/board-parser";
+import { adminAuth } from "@/lib/firebase/admin";
 
 export async function POST(request: NextRequest) {
+  const authHeader = request.headers.get("Authorization");
+  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  if (!token) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  try {
+    await adminAuth.verifyIdToken(token);
+  } catch {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   let formData: FormData;
   try {
     formData = await request.formData();
@@ -17,6 +29,7 @@ export async function POST(request: NextRequest) {
   }
 
   const allEntries = [];
+  const parseErrors: string[] = [];
 
   for (const file of files) {
     if (file.type !== "application/pdf") {
@@ -24,13 +37,20 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-      const buffer = Buffer.from(await file.arrayBuffer());
-      const parser = new PDFParse({ data: new Uint8Array(buffer) });
-      const textResult = await parser.getText();
-      const text = textResult.text;
-      await parser.destroy();
+      const buffer = new Uint8Array(await file.arrayBuffer());
+      const { text } = await extractText(buffer, { mergePages: true });
+
+      console.log(`[board/parse] ${file.name}: extracted ${text.length} chars`);
 
       const entries = parseBoardPdf(text, file.name);
+
+      console.log(`[board/parse] ${file.name}: parsed ${entries.length} entries`);
+      if (entries.length === 0) {
+        const allLines = text.split("\n");
+        // Log first 100 lines with char-count so we can spot column-reordering
+        const preview = allLines.slice(0, 100).map((l, i) => `  ${String(i + 1).padStart(3)}: [${l.length}] ${l}`).join("\n");
+        console.log(`[board/parse] ${file.name}: total lines=${allLines.length}, first 100:\n${preview}`);
+      }
 
       allEntries.push(
         ...entries.map((e) => ({
@@ -39,7 +59,9 @@ export async function POST(request: NextRequest) {
         }))
       );
     } catch (error) {
-      console.error(`Failed to parse ${file.name}:`, error);
+      const msg = error instanceof Error ? error.message : String(error);
+      console.error(`[board/parse] Failed to parse ${file.name}:`, error);
+      parseErrors.push(`${file.name}: ${msg}`);
     }
   }
 
@@ -47,5 +69,6 @@ export async function POST(request: NextRequest) {
     entries: allEntries,
     totalParsed: allEntries.length,
     filesProcessed: files.length,
+    ...(parseErrors.length > 0 && { parseErrors }),
   });
 }

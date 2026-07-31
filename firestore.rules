@@ -1,13 +1,65 @@
 rules_version = '2';
 
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: users  (doc ID = Firebase Auth UID)
+//   uid: string, email: string, displayName: string, role: string,
+//   active: bool, pleaderId: string|null, createdAt: timestamp,
+//   createdBy: string, lastLoginAt: timestamp
+//
+// Collection: pleaders
+//   name: string, designation: string, active: bool,
+//   createdAt: timestamp, updatedAt: timestamp, createdBy: string
+//
+// Collection: feeConfig  (doc ID = designation)
+//   designation: string, adjourned: number, heardAdjourned: number,
+//   disposed: number, updatedAt: timestamp, updatedBy: string
+//
+// Collection: boardEntries
+//   date: string (DD-MM-YYYY, display/canonical),
+//   dateISO: string (YYYY-MM-DD, internal — Firestore range/order queries only),
+//   caseType: string, caseNo: string,
+//   year: string, partyName: string, remarks: string, status: string,
+//   pleaderId: string, pleaderName: string, designation: string,
+//   fees: number, createdAt: timestamp, updatedAt: timestamp,
+//   createdBy: string, updatedBy: string
+//
+// Collection: bills
+//   dateFrom: string (DD-MM-YYYY), dateTo: string (DD-MM-YYYY),
+//   dateFromISO: string (YYYY-MM-DD, internal — range query only),
+//   dateToISO: string (YYYY-MM-DD, internal — range query only),
+//   pleaderId: string,
+//   pleaderName: string, designation: string, status: string,
+//   totalFees: number, entryCount: number, createdAt: timestamp,
+//   createdBy: string, createdByName: string, submittedAt: timestamp|null,
+//   reviewerRemarks: string, reviewerRemarksBy: string,
+//   reviewerRemarksAt: timestamp|null, finalizedAt: timestamp|null,
+//   finalizedBy: string|null, finalizedByName: string|null
+//
+// Collection: auditLogs  (append-only)
+//   action: string, entityType: string, entityId: string,
+//   description: string, performedBy: string, performedByName: string,
+//   performedByRole: string, timestamp: timestamp,
+//   metadata: map
+//
+// ===============================================================
+
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // ── Auth helpers ────────────────────────────────────────────
     function isAuthenticated() {
       return request.auth != null;
     }
 
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
     function role() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+      return userDoc().role;
     }
 
     function isAdmin() {
@@ -26,27 +78,72 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == uid;
     }
 
-    // Logins are provisioned by an Admin via the server-side API route
-    // (firebase-admin, bypasses these rules). These rules are defense-in-depth
-    // for any direct client reads/writes.
+    // ── users ───────────────────────────────────────────────────
+    // Written by Admin-only API route (firebase-admin bypasses rules).
+    // Users can read their own doc and update only lastLoginAt (set on login).
+    // All other writes (role, active, pleaderId) are admin-only.
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
-      allow write: if isAdmin();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() ||
+        (isOwner(userId) &&
+         request.resource.data.diff(resource.data).affectedKeys()
+           .hasOnly(['lastLoginAt']));
     }
 
+    // ── pleaders ────────────────────────────────────────────────
     match /pleaders/{pleaderId} {
       allow read: if isAuthenticated();
       allow write: if isAdmin();
     }
 
+    // ── feeConfig ───────────────────────────────────────────────
     match /feeConfig/{designation} {
       allow read: if isAuthenticated();
       allow write: if isAdmin();
     }
 
+    // ── boardEntries ────────────────────────────────────────────
+    // Data operators create/update/delete; admins and bill viewers read.
     match /boardEntries/{entryId} {
       allow read: if isAdmin() || isDataOperator() || isBillViewer();
-      allow write: if isDataOperator();
+      allow create: if isDataOperator();
+      allow update: if isDataOperator();
+      allow delete: if isDataOperator();
+    }
+
+    // ── bills ───────────────────────────────────────────────────
+    // Data operators create bills and finalize them.
+    // Bill viewers can read only bills assigned to their linked pleader,
+    // and can update only the reviewer remarks fields.
+    // Admins can read all bills.
+    match /bills/{billId} {
+      allow read: if isAdmin() || isDataOperator() ||
+        (isBillViewer() && resource.data.pleaderId == userDoc().pleaderId);
+
+      allow create: if isDataOperator() || isAdmin();
+
+      // Admin/Data operator: can update any field (status changes, finalization)
+      // Bill viewer: can only update reviewer remark fields on their own bill
+      allow update: if isDataOperator() || isAdmin() ||
+        (isBillViewer() &&
+         resource.data.pleaderId == userDoc().pleaderId &&
+         resource.data.status != 'final' &&
+         request.resource.data.diff(resource.data).affectedKeys()
+           .hasOnly(['reviewerRemarks', 'reviewerRemarksBy', 'reviewerRemarksAt', 'status']) &&
+         request.resource.data.status == 'under_revision');
+
+      allow delete: if false; // bills are never deleted
+    }
+
+    // ── auditLogs ───────────────────────────────────────────────
+    // All authenticated users can append logs (client-side logging).
+    // Only admins can read them.
+    match /auditLogs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isAuthenticated() &&
+        request.resource.data.performedBy == request.auth.uid;
+      allow update, delete: if false; // append-only
     }
   }
 }
