@@ -106,9 +106,9 @@ export default function BillsPage() {
       const snap = await getDocs(
         query(
           collection(db, "boardEntries"),
-          where("date", ">=", genDateFrom),
-          where("date", "<=", genDateTo),
-          orderBy("date", "asc")
+          where("dateISO", ">=", genDateFrom),
+          where("dateISO", "<=", genDateTo),
+          orderBy("dateISO", "asc")
         )
       );
       const allEntries = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as BoardEntry);
@@ -137,8 +137,10 @@ export default function BillsPage() {
           const totalFees = entries.reduce((s, e) => s + (e.fees || 0), 0);
 
           const billRef = await addDoc(collection(db, "bills"), {
-            dateFrom: genDateFrom,
-            dateTo: genDateTo,
+            dateFrom: formatDate(genDateFrom),
+            dateTo: formatDate(genDateTo),
+            dateFromISO: genDateFrom,
+            dateToISO: genDateTo,
             pleaderId: pid,           // internal Firestore ID
             pleaderName: pleader.name, // display name from pleader record
             designation: pleader.designation,
@@ -164,9 +166,9 @@ export default function BillsPage() {
 
           logAudit(
             "bill_generated", "bill", billRef.id,
-            `Generated bill for ${pleader.name} (${genDateFrom} to ${genDateTo}), ${entries.length} entries, ₹${totalFees.toLocaleString()}`,
+            `Generated bill for ${pleader.name} (${formatDate(genDateFrom)} to ${formatDate(genDateTo)}), ${entries.length} entries, ₹${totalFees.toLocaleString()}`,
             actor,
-            { pleaderId: pid, pleaderName: pleader.name, dateFrom: genDateFrom, dateTo: genDateTo, entryCount: entries.length, totalFees }
+            { pleaderId: pid, pleaderName: pleader.name, dateFrom: formatDate(genDateFrom), dateTo: formatDate(genDateTo), entryCount: entries.length, totalFees }
           );
           createdNames.push(pleader.name);
         })
@@ -288,7 +290,7 @@ export default function BillsPage() {
                 {filteredBills.map((b) => (
                   <tr key={b.id} className="border-b last:border-0 hover:bg-gray-50">
                     <td className="px-4 py-3 font-medium">{b.pleaderName}</td>
-                    <td className="px-4 py-3 text-gray-600">{formatDate(b.dateFrom)} → {formatDate(b.dateTo)}</td>
+                    <td className="px-4 py-3 text-gray-600">{b.dateFrom} → {b.dateTo}</td>
                     <td className="px-4 py-3">{b.entryCount}</td>
                     <td className="px-4 py-3 font-semibold">₹{b.totalFees.toLocaleString()}</td>
                     <td className="px-4 py-3">

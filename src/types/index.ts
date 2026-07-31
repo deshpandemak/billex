@@ -88,8 +88,10 @@ export const BILL_STATUSES: BillStatus[] = ["open_for_review", "final"];
 
 export interface Bill {
   id: string;
-  dateFrom: string;           // YYYY-MM-DD
-  dateTo: string;             // YYYY-MM-DD
+  dateFrom: string;           // DD-MM-YYYY (display/canonical)
+  dateTo: string;             // DD-MM-YYYY (display/canonical)
+  dateFromISO: string;        // YYYY-MM-DD — internal, Firestore range query only
+  dateToISO: string;          // YYYY-MM-DD — internal, Firestore range query only
   pleaderId: string;
   pleaderName: string;
   designation: Designation;
@@ -129,7 +131,8 @@ export interface AuditLog {
 
 export interface BoardEntry {
   id: string;
-  date: string; // YYYY-MM-DD
+  date: string; // DD-MM-YYYY (display/canonical)
+  dateISO: string; // YYYY-MM-DD — internal, Firestore range/order queries only
   caseType: string;
   caseNo: string;
   year: string;

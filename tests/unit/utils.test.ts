@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { cn, formatDate, formatDateTime } from "@/lib/utils";
+import { cn, displayToIso, formatDate, formatDateTime } from "@/lib/utils";
 import { isAdmin, isBillViewer, isDataOperator } from "@/lib/auth/roles";
 import { DESIGNATION_LABELS, DESIGNATIONS } from "@/types";
 
@@ -101,6 +101,21 @@ describe("formatDateTime", () => {
   it("returns an em dash for null or undefined", () => {
     expect(formatDateTime(null)).toBe("—");
     expect(formatDateTime(undefined)).toBe("—");
+  });
+});
+
+describe("displayToIso", () => {
+  it("converts DD-MM-YYYY to YYYY-MM-DD", () => {
+    expect(displayToIso("15-07-2026")).toBe("2026-07-15");
+  });
+
+  it("returns the input unchanged if not in display format", () => {
+    expect(displayToIso("2026-07-15")).toBe("2026-07-15");
+    expect(displayToIso("")).toBe("");
+  });
+
+  it("round-trips with formatDate", () => {
+    expect(displayToIso(formatDate("2026-01-05"))).toBe("2026-01-05");
   });
 });
 
