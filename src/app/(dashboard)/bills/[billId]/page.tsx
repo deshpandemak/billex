@@ -7,6 +7,7 @@ import {
   collection, doc, getDoc, getDocs, orderBy, query, Timestamp, updateDoc, where, writeBatch,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase/client";
+import { resolveDateISO } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/context";
 import { isAdmin, isBillViewer, isDataOperator } from "@/lib/auth/roles";
 import { logAudit } from "@/lib/audit";
@@ -67,13 +68,19 @@ export default function BillDetailPage() {
       const billData = { id: billSnap.id, ...billSnap.data() } as Bill;
       setBill(billData);
 
+      // Bills created before dateFromISO/dateToISO existed don't have them —
+      // fall back to the stored dateFrom/dateTo, which pre-migration are
+      // still raw YYYY-MM-DD, so undefined never reaches where().
+      const dateFromISO = resolveDateISO(billData.dateFrom, billData.dateFromISO);
+      const dateToISO = resolveDateISO(billData.dateTo, billData.dateToISO);
+
       // Load board entries for this bill's pleader + date range
       const entriesSnap = await getDocs(
         query(
           collection(db, "boardEntries"),
           where("pleaderId", "==", billData.pleaderId),
-          where("dateISO", ">=", billData.dateFromISO),
-          where("dateISO", "<=", billData.dateToISO),
+          where("dateISO", ">=", dateFromISO),
+          where("dateISO", "<=", dateToISO),
           orderBy("dateISO", "asc")
         )
       );
