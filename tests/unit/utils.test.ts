@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { cn, displayToIso, formatDate, formatDateTime } from "@/lib/utils";
+import { cn, displayToIso, formatDate, formatDateTime, resolveDateISO } from "@/lib/utils";
 import { isAdmin, isBillViewer, isDataOperator } from "@/lib/auth/roles";
 import { DESIGNATION_LABELS, DESIGNATIONS } from "@/types";
 
@@ -116,6 +116,21 @@ describe("displayToIso", () => {
 
   it("round-trips with formatDate", () => {
     expect(displayToIso(formatDate("2026-01-05"))).toBe("2026-01-05");
+  });
+});
+
+describe("resolveDateISO", () => {
+  it("prefers the ISO shadow field when present", () => {
+    expect(resolveDateISO("15-07-2026", "2026-07-15")).toBe("2026-07-15");
+  });
+
+  it("falls back to the display field when it's already YYYY-MM-DD (pre-migration document)", () => {
+    expect(resolveDateISO("2026-07-15", undefined)).toBe("2026-07-15");
+    expect(resolveDateISO("2026-07-15", null)).toBe("2026-07-15");
+  });
+
+  it("converts a DD-MM-YYYY display field when the ISO field is missing", () => {
+    expect(resolveDateISO("15-07-2026", undefined)).toBe("2026-07-15");
   });
 });
 

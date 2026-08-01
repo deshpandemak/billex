@@ -39,6 +39,7 @@ export function formatDateTime(value: DateLike): string {
 }
 
 const DISPLAY_DATE_RE = /^(\d{2})-(\d{2})-(\d{4})$/;
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Converts a DD-MM-YYYY display date back to YYYY-MM-DD, for native <input type="date"> values. */
 export function displayToIso(display: string): string {
@@ -46,4 +47,16 @@ export function displayToIso(display: string): string {
   if (!m) return display;
   const [, dd, mm, yyyy] = m;
   return `${yyyy}-${mm}-${dd}`;
+}
+
+/**
+ * Resolves the YYYY-MM-DD form of a stored date field for use as a Firestore
+ * query bound. Prefers the `*ISO` shadow field; falls back to the display
+ * field itself for documents written before that field existed — pre-migration
+ * documents still hold a raw YYYY-MM-DD value there, and undefined would
+ * otherwise crash the where() call.
+ */
+export function resolveDateISO(display: string, iso: string | undefined | null): string {
+  if (iso) return iso;
+  return ISO_DATE_RE.test(display) ? display : displayToIso(display);
 }
